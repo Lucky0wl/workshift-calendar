@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -121,8 +122,8 @@ private fun defaultTemplates(): List<ShiftTemplate> = listOf(
         name = "2 через 2",
         description = "Две смены, два выходных",
         pattern = listOf(
-            ShiftKind.DAY,
-            ShiftKind.DAY,
+            ShiftKind.MORNING,
+            ShiftKind.MORNING,
             ShiftKind.OFF,
             ShiftKind.OFF
         )
