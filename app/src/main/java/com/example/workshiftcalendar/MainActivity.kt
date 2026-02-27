@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ColorLens
+import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.AlertDialog
@@ -60,6 +61,13 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.LocationServices
+import androidx.compose.ui.platform.LocalContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -93,7 +101,8 @@ private data class ShiftTemplate(
 private data class ShiftDetails(
     val kind: ShiftKind,
     val note: String = "",
-    val location: String = ""
+    val location: String = "",
+    val customSalary: String = ""
 )
 
 private data class DayCell(
@@ -249,7 +258,9 @@ private fun CalendarScreen(
                     assignments
                         .filter { (date, _) -> YearMonth.from(date) == month }
                         .values
-                        .sumOf { details -> shiftRates[details.kind]?.toIntOrNull() ?: 0 }
+                        .sumOf { details ->
+                            details.customSalary.toIntOrNull() ?: shiftRates[details.kind]?.toIntOrNull() ?: 0
+                        }
                 }
                 if (currentMonthSalary > 0) {
                     Text(
@@ -443,6 +454,40 @@ private fun ShiftPickerDialog(
     var selectedKind by remember { mutableStateOf(currentDetails?.kind) }
     var currentNote by remember { mutableStateOf(currentDetails?.note ?: "") }
     var currentLocation by remember { mutableStateOf(currentDetails?.location ?: "") }
+    var currentCustomSalary by remember { mutableStateOf(currentDetails?.customSalary ?: "") }
+    
+    val context = LocalContext.current
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+    
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true || permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+            try {
+                fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                    if (loc != null) {
+                        currentLocation = "Lat: ${String.format(Locale.US, "%.4f", loc.latitude)}, Lng: ${String.format(Locale.US, "%.4f", loc.longitude)}"
+                    }
+                }
+            } catch (e: SecurityException) {
+                // Ignore
+            }
+        }
+    }
+
+    val fetchLocation = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                if (loc != null) {
+                    currentLocation = "Lat: ${String.format(Locale.US, "%.4f", loc.latitude)}, Lng: ${String.format(Locale.US, "%.4f", loc.longitude)}"
+                }
+            }
+        } else {
+            locationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -487,10 +532,22 @@ private fun ShiftPickerDialog(
                 if (selectedKind != null && selectedKind != ShiftKind.OFF) {
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
+                        value = currentCustomSalary,
+                        onValueChange = { currentCustomSalary = it },
+                        label = { Text("Оплата за этот день (если отличается)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
                         value = currentLocation,
                         onValueChange = { currentLocation = it },
                         label = { Text("Локация / Объект") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = {
+                            IconButton(onClick = fetchLocation) {
+                                Icon(Icons.Outlined.Place, contentDescription = "Получить геопозицию")
+                            }
+                        }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
@@ -507,6 +564,7 @@ private fun ShiftPickerDialog(
                         selectedKind = null
                         currentNote = ""
                         currentLocation = ""
+                        currentCustomSalary = ""
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -522,7 +580,12 @@ private fun ShiftPickerDialog(
                 Spacer(modifier = Modifier.width(8.dp))
                 TextButton(onClick = { 
                     if (selectedKind != null) {
-                        onDetailsSaved(ShiftDetails(kind = selectedKind!!, note = currentNote, location = currentLocation))
+                        onDetailsSaved(ShiftDetails(
+                            kind = selectedKind!!, 
+                            note = currentNote, 
+                            location = currentLocation,
+                            customSalary = currentCustomSalary
+                        ))
                     } else {
                         onDetailsSaved(null)
                     }
@@ -595,7 +658,7 @@ private fun applyTemplateToMonth(
     for (day in 1..daysInMonth) {
         val date = month.atDay(day)
         val shift = template.pattern[patternIndex % template.pattern.size]
-        result[date] = ShiftDetails(kind = shift, note = "", location = "")
+        result[date] = ShiftDetails(kind = shift, note = "", location = "", customSalary = "")
         patternIndex++
     }
 
