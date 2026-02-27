@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ColorLens
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
@@ -34,6 +35,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -69,7 +72,7 @@ class MainActivity : ComponentActivity() {
 private enum class BottomTab(val label: String) {
     CALENDAR("Календарь"),
     TEMPLATES("Шаблоны"),
-    STYLES("Стили")
+    SETTINGS("Настройки")
 }
 
 private enum class ShiftKind(val displayName: String, val color: Color) {
@@ -84,6 +87,12 @@ private data class ShiftTemplate(
     val name: String,
     val description: String,
     val pattern: List<ShiftKind>
+)
+
+private data class ShiftDetails(
+    val kind: ShiftKind,
+    val note: String = "",
+    val location: String = ""
 )
 
 private data class DayCell(
@@ -134,8 +143,11 @@ fun WorkshiftAppRoot() {
     var currentStyle by remember { mutableStateOf(AppStyle.MODERN_BLUE) }
     var currentTab by remember { mutableStateOf(BottomTab.CALENDAR) }
     var selectedMonth by remember { mutableStateOf(YearMonth.now()) }
-    var assignments by remember { mutableStateOf(mapOf<LocalDate, ShiftKind>()) }
+    var assignments by remember { mutableStateOf(mapOf<LocalDate, ShiftDetails>()) }
     var templates by remember { mutableStateOf(defaultTemplates()) }
+    var shiftRates by remember { 
+        mutableStateOf(ShiftKind.values().filter { it != ShiftKind.OFF }.associateWith { "" }) 
+    }
 
     WorkshiftTheme(style = currentStyle) {
         Scaffold(
@@ -154,10 +166,10 @@ fun WorkshiftAppRoot() {
                         label = { Text("Шаблоны") }
                     )
                     NavigationBarItem(
-                        selected = currentTab == BottomTab.STYLES,
-                        onClick = { currentTab = BottomTab.STYLES },
-                        icon = { Icon(Icons.Outlined.ColorLens, contentDescription = null) },
-                        label = { Text("Стили") }
+                        selected = currentTab == BottomTab.SETTINGS,
+                        onClick = { currentTab = BottomTab.SETTINGS },
+                        icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                        label = { Text("Настройки") }
                     )
                 }
             }
@@ -177,10 +189,12 @@ fun WorkshiftAppRoot() {
                     templates = templates
                 )
 
-                BottomTab.STYLES -> StylesScreen(
+                BottomTab.SETTINGS -> SettingsScreen(
                     modifier = Modifier.padding(innerPadding),
                     currentStyle = currentStyle,
-                    onStyleChange = { currentStyle = it }
+                    onStyleChange = { currentStyle = it },
+                    shiftRates = shiftRates,
+                    onRatesChange = { shiftRates = it }
                 )
             }
         }
@@ -193,9 +207,10 @@ private fun CalendarScreen(
     modifier: Modifier = Modifier,
     month: YearMonth,
     onMonthChanged: (YearMonth) -> Unit,
-    assignments: Map<LocalDate, ShiftKind>,
-    onAssignmentsChange: (Map<LocalDate, ShiftKind>) -> Unit,
-    templates: List<ShiftTemplate>
+    assignments: Map<LocalDate, ShiftDetails>,
+    onAssignmentsChange: (Map<LocalDate, ShiftDetails>) -> Unit,
+    templates: List<ShiftTemplate>,
+    shiftRates: Map<ShiftKind, String>
 ) {
     val locale = Locale.getDefault()
     var showShiftDialogForDate by remember { mutableStateOf<LocalDate?>(null) }
@@ -227,6 +242,21 @@ private fun CalendarScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                 )
+
+                val currentMonthSalary = remember(month, assignments, shiftRates) {
+                    assignments
+                        .filter { (date, _) -> YearMonth.from(date) == month }
+                        .values
+                        .sumOf { details -> shiftRates[details.kind]?.toIntOrNull() ?: 0 }
+                }
+                if (currentMonthSalary > 0) {
+                    Text(
+                        text = "Итого: $currentMonthSalary ₽",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
             IconButton(onClick = { onMonthChanged(month.plusMonths(1)) }) {
                 Text(">", fontSize = 20.sp)
@@ -260,7 +290,8 @@ private fun CalendarScreen(
             contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp)
         ) {
             items(days) { dayCell ->
-                val shift = assignments[dayCell.date]
+                val shiftDetails = assignments[dayCell.date]
+                val shift = shiftDetails?.kind
                 val isToday = dayCell.date == LocalDate.now()
                 val background = when {
                     shift != null -> shift.color.copy(alpha = 0.18f)
@@ -294,13 +325,26 @@ private fun CalendarScreen(
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                         )
                         if (shift != null) {
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = shift.displayName,
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 textAlign = TextAlign.Center,
                                 color = shift.color
+                            )
+                        }
+                        if (shiftDetails?.note?.isNotBlank() == true || shiftDetails?.location?.isNotBlank() == true) {
+                            Spacer(modifier = Modifier.weight(1f))
+                            Box(
+                                modifier = Modifier
+                                    .padding(bottom = 2.dp)
+                                    .height(4.dp)
+                                    .width(16.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                        shape = MaterialTheme.shapes.small
+                                    )
                             )
                         }
                     }
@@ -321,14 +365,14 @@ private fun CalendarScreen(
             val date = showShiftDialogForDate!!
             ShiftPickerDialog(
                 date = date,
-                current = assignments[date],
+                currentDetails = assignments[date],
                 onDismiss = { showShiftDialogForDate = null },
-                onShiftSelected = { selected ->
+                onDetailsSaved = { selectedDetails ->
                     val updated = assignments.toMutableMap()
-                    if (selected == null) {
+                    if (selectedDetails == null) {
                         updated.remove(date)
                     } else {
-                        updated[date] = selected
+                        updated[date] = selectedDetails
                     }
                     onAssignmentsChange(updated)
                     showShiftDialogForDate = null
@@ -390,10 +434,14 @@ private fun buildMonthGrid(month: YearMonth): List<DayCell> {
 @Composable
 private fun ShiftPickerDialog(
     date: LocalDate,
-    current: ShiftKind?,
+    currentDetails: ShiftDetails?,
     onDismiss: () -> Unit,
-    onShiftSelected: (ShiftKind?) -> Unit
+    onDetailsSaved: (ShiftDetails?) -> Unit
 ) {
+    var selectedKind by remember { mutableStateOf(currentDetails?.kind) }
+    var currentNote by remember { mutableStateOf(currentDetails?.note ?: "") }
+    var currentLocation by remember { mutableStateOf(currentDetails?.location ?: "") }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -402,14 +450,14 @@ private fun ShiftPickerDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Выберите тип смены или очистите день",
+                    text = "Выберите тип смены",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 ShiftKind.values().forEach { shift ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onShiftSelected(shift) }
+                            .clickable { selectedKind = shift }
                             .padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -426,21 +474,59 @@ private fun ShiftPickerDialog(
                             text = shift.displayName,
                             modifier = Modifier.padding(start = 12.dp),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (current == shift)
+                            color = if (selectedKind == shift)
                                 MaterialTheme.colorScheme.primary
                             else
                                 MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
-                TextButton(onClick = { onShiftSelected(null) }) {
+                
+                if (selectedKind != null && selectedKind != ShiftKind.OFF) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = currentLocation,
+                        onValueChange = { currentLocation = it },
+                        label = { Text("Локация / Объект") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = currentNote,
+                        onValueChange = { currentNote = it },
+                        label = { Text("Что было сделано (заметка)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = { 
+                        selectedKind = null
+                        currentNote = ""
+                        currentLocation = ""
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text("Очистить день")
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Закрыть")
+            Row {
+                 TextButton(onClick = onDismiss) {
+                    Text("Отмена")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(onClick = { 
+                    if (selectedKind != null) {
+                        onDetailsSaved(ShiftDetails(kind = selectedKind!!, note = currentNote, location = currentLocation))
+                    } else {
+                        onDetailsSaved(null)
+                    }
+                }) {
+                    Text("Сохранить")
+                }
             }
         }
     )
@@ -498,8 +584,8 @@ private fun TemplatePickerDialog(
 private fun applyTemplateToMonth(
     month: YearMonth,
     template: ShiftTemplate,
-    initialAssignments: Map<LocalDate, ShiftKind>
-): Map<LocalDate, ShiftKind> {
+    initialAssignments: Map<LocalDate, ShiftDetails>
+): Map<LocalDate, ShiftDetails> {
     val result = initialAssignments.toMutableMap()
     val daysInMonth = month.lengthOfMonth()
     var patternIndex = 0
@@ -507,7 +593,7 @@ private fun applyTemplateToMonth(
     for (day in 1..daysInMonth) {
         val date = month.atDay(day)
         val shift = template.pattern[patternIndex % template.pattern.size]
-        result[date] = shift
+        result[date] = ShiftDetails(kind = shift, note = "", location = "")
         patternIndex++
     }
 
@@ -585,51 +671,101 @@ private fun TemplatesScreen(
 }
 
 @Composable
-private fun StylesScreen(
+private fun SettingsScreen(
     modifier: Modifier = Modifier,
     currentStyle: AppStyle,
-    onStyleChange: (AppStyle) -> Unit
+    onStyleChange: (AppStyle) -> Unit,
+    shiftRates: Map<ShiftKind, String>,
+    onRatesChange: (Map<ShiftKind, String>) -> Unit
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "Стили оформления",
+            text = "Настройки",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold
         )
-        Text(
-            text = "Выберите визуальный стиль приложения. Он сразу применяется ко всем экранам.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
-        )
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Зарплата",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "Введите оплату за смену, чтобы видеть сумму за месяц.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                )
+                
+                ShiftKind.values().filter { it != ShiftKind.OFF }.forEach { shift ->
+                    OutlinedTextField(
+                        value = shiftRates[shift] ?: "",
+                        onValueChange = { 
+                            val updated = shiftRates.toMutableMap()
+                            updated[shift] = it
+                            onRatesChange(updated)
+                        },
+                        label = { Text("Оплата за: ${shift.displayName}") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            }
+        }
 
-        StyleCard(
-            title = "Современный синий",
-            description = "Аккуратный светлый интерфейс в сине-зелёной палитре.",
-            isSelected = currentStyle == AppStyle.MODERN_BLUE,
-            accent = Color(0xFF1565C0),
-            onClick = { onStyleChange(AppStyle.MODERN_BLUE) }
-        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Стили оформления",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "Выберите визуальный стиль приложения. Он сразу применяется ко всем экранам.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
 
-        StyleCard(
-            title = "Тёмный AMOLED",
-            description = "Глубокий чёрный фон для экономии батареи на OLED-экранах.",
-            isSelected = currentStyle == AppStyle.DARK_AMOLED,
-            accent = Color(0xFFBB86FC),
-            onClick = { onStyleChange(AppStyle.DARK_AMOLED) }
-        )
+                StyleCard(
+                    title = "Современный синий",
+                    description = "Аккуратный светлый интерфейс в сине-зелёной палитре.",
+                    isSelected = currentStyle == AppStyle.MODERN_BLUE,
+                    accent = Color(0xFF1565C0),
+                    onClick = { onStyleChange(AppStyle.MODERN_BLUE) }
+                )
 
-        StyleCard(
-            title = "Тёплый пастельный",
-            description = "Ненавязчивые тёплые оттенки для мягкого дневного интерфейса.",
-            isSelected = currentStyle == AppStyle.WARM_PASTEL,
-            accent = Color(0xFFF97316),
-            onClick = { onStyleChange(AppStyle.WARM_PASTEL) }
-        )
+                StyleCard(
+                    title = "Тёмный AMOLED",
+                    description = "Глубокий чёрный фон для экономии батареи на OLED-экранах.",
+                    isSelected = currentStyle == AppStyle.DARK_AMOLED,
+                    accent = Color(0xFFBB86FC),
+                    onClick = { onStyleChange(AppStyle.DARK_AMOLED) }
+                )
+
+                StyleCard(
+                    title = "Тёплый пастельный",
+                    description = "Ненавязчивые тёплые оттенки для мягкого дневного интерфейса.",
+                    isSelected = currentStyle == AppStyle.WARM_PASTEL,
+                    accent = Color(0xFFF97316),
+                    onClick = { onStyleChange(AppStyle.WARM_PASTEL) }
+                )
+            }
+        }
     }
 }
 
