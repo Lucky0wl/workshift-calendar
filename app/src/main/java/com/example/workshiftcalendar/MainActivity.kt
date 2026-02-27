@@ -475,7 +475,7 @@ private fun ShiftPickerDialog(
         }
     }
 
-    val fetchLocation = {
+    val fetchLocation: () -> Unit = {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
                 if (loc != null) {
