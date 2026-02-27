@@ -25,15 +25,16 @@ jobs:
         with:
           packages: 'tools platform-tools platform;android-34 build-tools;34.0.0'
 
-      - name: Download Gradle Wrapper JAR
-        run: |
-          mkdir -p gradle/wrapper
-          curl -sL -o gradle.zip https://services.gradle.org/distributions/gradle-8.5-bin.zip
-          unzip -j -q gradle.zip "gradle-8.5/lib/gradle-wrapper.jar" -d gradle/wrapper/
-          rm -f gradle.zip
+      - name: Setup Gradle and generate wrapper
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.5
+
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper --gradle-version=8.5
 
       - name: Build debug APK
-        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
