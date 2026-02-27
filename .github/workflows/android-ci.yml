@@ -21,9 +21,11 @@ jobs:
           java-version: 17
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'tools platform-tools platform;android-34 build-tools;34.0.0'
+        uses: android-actions/setup-android@v3.2.2
+
+      - name: Install Android platform and build-tools
+        run: |
+          yes | sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
 
       - name: Install Gradle and generate wrapper
         run: |
