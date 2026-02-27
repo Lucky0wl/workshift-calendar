@@ -1,0 +1,2 @@
+rootProject.name = "WorkshiftCalendar"
+include(":app")
