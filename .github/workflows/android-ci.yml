@@ -31,9 +31,11 @@ jobs:
         run: |
           curl -sL -o gradle.zip https://services.gradle.org/distributions/gradle-8.5-bin.zip
           unzip -q gradle.zip
-          chmod +x gradle-8.5/bin/gradle
-          ./gradle-8.5/bin/gradle wrapper --gradle-version=8.5 --no-daemon
-          rm -rf gradle-8.5 gradle.zip
+          GRADLE_DIR=$(ls -d gradle-* | head -1)
+          chmod +x "$GRADLE_DIR/bin/gradle"
+          export ANDROID_HOME="${ANDROID_SDK_ROOT:-$HOME/.android/sdk}"
+          "./$GRADLE_DIR/bin/gradle" wrapper --gradle-version=8.5 --no-daemon --no-configuration-cache
+          rm -rf "$GRADLE_DIR" gradle.zip
 
       - name: Build debug APK
         run: |
