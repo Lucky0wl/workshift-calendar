@@ -20,8 +20,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
@@ -91,7 +91,6 @@ private data class DayCell(
     val isCurrentMonth: Boolean
 )
 
-@Composable
 private fun defaultTemplates(): List<ShiftTemplate> = listOf(
     ShiftTemplate(
         id = "2_2_4",
@@ -145,7 +144,7 @@ fun WorkshiftAppRoot() {
                     NavigationBarItem(
                         selected = currentTab == BottomTab.CALENDAR,
                         onClick = { currentTab = BottomTab.CALENDAR },
-                        icon = { Icon(Icons.Default.CalendarMonth, contentDescription = null) },
+                        icon = { Icon(Icons.Outlined.CalendarMonth, contentDescription = null) },
                         label = { Text("Календарь") }
                     )
                     NavigationBarItem(
@@ -157,7 +156,7 @@ fun WorkshiftAppRoot() {
                     NavigationBarItem(
                         selected = currentTab == BottomTab.STYLES,
                         onClick = { currentTab = BottomTab.STYLES },
-                        icon = { Icon(Icons.Default.ColorLens, contentDescription = null) },
+                        icon = { Icon(Icons.Outlined.ColorLens, contentDescription = null) },
                         label = { Text("Стили") }
                     )
                 }
