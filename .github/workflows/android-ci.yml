@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout sources
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -25,18 +25,20 @@ jobs:
         with:
           packages: 'tools platform-tools platform;android-34 build-tools;34.0.0'
 
-      - name: Setup Gradle and generate wrapper
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: 8.5
-
-      - name: Generate Gradle Wrapper
-        run: gradle wrapper --gradle-version=8.5
+      - name: Install Gradle and generate wrapper
+        run: |
+          curl -sL -o gradle.zip https://services.gradle.org/distributions/gradle-8.5-bin.zip
+          unzip -q gradle.zip
+          chmod +x gradle-8.5/bin/gradle
+          ./gradle-8.5/bin/gradle wrapper --gradle-version=8.5 --no-daemon
+          rm -rf gradle-8.5 gradle.zip
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          export ANDROID_HOME="${ANDROID_SDK_ROOT:-$HOME/.android/sdk}"
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
