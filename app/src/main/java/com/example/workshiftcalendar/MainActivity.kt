@@ -508,10 +508,12 @@ private fun DayCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+    val isToday = cell.isCurrentMonth && cell.date == LocalDate.now()
+    val isWeekend = cell.date.dayOfWeek == DayOfWeek.SATURDAY || cell.date.dayOfWeek == DayOfWeek.SUNDAY
     val hasShift = cell.isCurrentMonth && shiftDetails != null
     val isWorking = hasShift && shiftDetails!!.kind != ShiftKind.OFF
 
-    // Card with a colored left border to indicate shift, keeping the date always readable
+    // Card with a colored border to indicate shift, keeping the date always readable
     Box(
         modifier = Modifier
             .aspectRatio(0.8f)
