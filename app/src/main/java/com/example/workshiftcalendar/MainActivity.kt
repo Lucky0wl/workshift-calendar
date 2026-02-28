@@ -41,12 +41,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Wallet
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -120,7 +122,7 @@ private val appGson = Gson()
 // ═══════════════════════════════════════════════
 
 private enum class BottomTab(val label: String) {
-    CALENDAR("Календарь"), STATS("Статистика"), TEMPLATES("Шаблоны"), SETTINGS("Настройки")
+    CALENDAR("Календарь"), STATS("Статистика"), BUDGET("Бюджет"), TEMPLATES("Шаблоны"), SETTINGS("Настройки")
 }
 
 private enum class ShiftKind(
@@ -154,17 +156,38 @@ private data class ShiftTemplate(
 
 private data class DayCell(val date: LocalDate, val isCurrentMonth: Boolean)
 
+private enum class ExpenseCategory(val displayName: String, val emoji: String, val color: Color) {
+    FOOD("Продукты", "🛒", Color(0xFF2E7D32)),
+    RESTAURANT("Кафе/Рестораны", "🍽️", Color(0xFF388E3C)),
+    TRANSPORT("Транспорт", "🚗", Color(0xFF1565C0)),
+    HOUSING("Жильё/ЖКХ", "🏠", Color(0xFF6A1B9A)),
+    HEALTH("Здоровье", "💊", Color(0xFFC62828)),
+    ENTERTAINMENT("Развлечения", "🎮", Color(0xFFE65100)),
+    CLOTHING("Одежда", "👕", Color(0xFF00695C)),
+    OTHER("Другое", "💸", Color(0xFF37474F))
+}
+
+private data class ExpenseEntry(
+    val id: String,
+    val date: LocalDate,
+    val amount: Int,
+    val category: ExpenseCategory,
+    val note: String = ""
+)
+
 // ═══════════════════════════════════════════════
 // Serialisation DTOs
 // ═══════════════════════════════════════════════
 
 private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "", val customHours: String = "")
 private data class ShiftTemplateDto(val id: String = "", val name: String = "", val description: String = "", val pattern: List<String> = emptyList())
+private data class ExpenseEntryDto(val id: String = "", val date: String = "", val amount: Int = 0, val category: String = "", val note: String = "")
 private data class AppDataDto(
     val assignments: Map<String, ShiftDetailsDto> = emptyMap(),
     val customTemplates: List<ShiftTemplateDto> = emptyList(),
     val shiftRates: Map<String, String> = emptyMap(),
-    val appStyle: String = AppStyle.MODERN_BLUE.name
+    val appStyle: String = AppStyle.MODERN_BLUE.name,
+    val expenses: List<ExpenseEntryDto> = emptyList()
 )
 
 private fun Map<LocalDate, ShiftDetails>.toDto() = entries.associate { (d, v) ->
@@ -179,6 +202,11 @@ private fun Map<String, ShiftDetailsDto>.toDomain() = entries.mapNotNull { (ds, 
 private fun ShiftTemplate.toDto() = ShiftTemplateDto(id, name, description, pattern.map { it.name })
 private fun ShiftTemplateDto.toDomain() = try {
     ShiftTemplate(id, name, description, pattern.map { ShiftKind.valueOf(it) })
+} catch (e: Exception) { null }
+
+private fun ExpenseEntry.toDto() = ExpenseEntryDto(id, date.toString(), amount, category.name, note)
+private fun ExpenseEntryDto.toDomain() = try {
+    ExpenseEntry(id, LocalDate.parse(date), amount, ExpenseCategory.valueOf(category), note)
 } catch (e: Exception) { null }
 
 private fun Map<ShiftKind, String>.toStringMap() = entries.associate { (k, v) -> k.name to v }
@@ -233,6 +261,7 @@ fun WorkshiftAppRoot() {
     var shiftRates by remember {
         mutableStateOf(ShiftKind.values().filter { it != ShiftKind.OFF }.associateWith { "" })
     }
+    var expenses by remember { mutableStateOf(listOf<ExpenseEntry>()) }
     var isLoaded by remember { mutableStateOf(false) }
 
     // Load from DataStore once
@@ -246,6 +275,7 @@ fun WorkshiftAppRoot() {
                 templates = builtInTemplates() + custom
                 shiftRates = ShiftKind.values().filter { it != ShiftKind.OFF }
                     .associateWith { dto.shiftRates[it.name] ?: "" }
+                expenses = dto.expenses.mapNotNull { it.toDomain() }
                 try { currentStyle = AppStyle.valueOf(dto.appStyle) } catch (_: Exception) {}
             }
         } catch (_: Exception) {}
@@ -253,13 +283,14 @@ fun WorkshiftAppRoot() {
     }
 
     // Auto-save on state change (only after initial load)
-    LaunchedEffect(assignments, shiftRates, currentStyle, isLoaded) {
+    LaunchedEffect(assignments, shiftRates, currentStyle, expenses, isLoaded) {
         if (!isLoaded) return@LaunchedEffect
         val dto = AppDataDto(
             assignments = assignments.toDto(),
             customTemplates = templates.filter { !it.isBuiltIn }.map { it.toDto() },
             shiftRates = shiftRates.toStringMap(),
-            appStyle = currentStyle.name
+            appStyle = currentStyle.name,
+            expenses = expenses.map { it.toDto() }
         )
         context.dataStore.edit { it[APP_DATA_KEY] = appGson.toJson(dto) }
     }
@@ -278,7 +309,13 @@ fun WorkshiftAppRoot() {
                         selected = currentTab == BottomTab.STATS,
                         onClick = { currentTab = BottomTab.STATS },
                         icon = { Icon(Icons.Outlined.BarChart, null) },
-                        label = { Text("Статистика") }
+                        label = { Text("Итоги") }
+                    )
+                    NavigationBarItem(
+                        selected = currentTab == BottomTab.BUDGET,
+                        onClick = { currentTab = BottomTab.BUDGET },
+                        icon = { Icon(Icons.Outlined.Wallet, null) },
+                        label = { Text("Бюджет") }
                     )
                     NavigationBarItem(
                         selected = currentTab == BottomTab.TEMPLATES,
@@ -311,6 +348,15 @@ fun WorkshiftAppRoot() {
                     onMonthChanged = { selectedMonth = it },
                     assignments = assignments,
                     shiftRates = shiftRates
+                )
+                BottomTab.BUDGET -> BudgetScreen(
+                    modifier = Modifier.padding(innerPadding),
+                    month = selectedMonth,
+                    onMonthChanged = { selectedMonth = it },
+                    assignments = assignments,
+                    shiftRates = shiftRates,
+                    expenses = expenses,
+                    onExpensesChange = { expenses = it }
                 )
                 BottomTab.TEMPLATES -> TemplatesScreen(
                     modifier = Modifier.padding(innerPadding),
@@ -1205,4 +1251,345 @@ private fun applyTemplateToMonth(template: ShiftTemplate, month: YearMonth, star
         patternIndex++
     }
     return result
+}
+
+// ═══════════════════════════════════════════════
+// Budget Screen
+// ═══════════════════════════════════════════════
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BudgetScreen(
+    modifier: Modifier,
+    month: YearMonth,
+    onMonthChanged: (YearMonth) -> Unit,
+    assignments: Map<LocalDate, ShiftDetails>,
+    shiftRates: Map<ShiftKind, String>,
+    expenses: List<ExpenseEntry>,
+    onExpensesChange: (List<ExpenseEntry>) -> Unit
+) {
+    val locale = Locale.getDefault()
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    val monthExpenses = remember(month, expenses) {
+        expenses.filter { YearMonth.from(it.date) == month }.sortedByDescending { it.date }
+    }
+    val totalExpenses = monthExpenses.sumOf { it.amount }
+
+    val monthIncome = remember(month, assignments, shiftRates) {
+        assignments.filter { (d, _) -> YearMonth.from(d) == month }
+            .values.sumOf { it.customSalary.toIntOrNull() ?: shiftRates[it.kind]?.toIntOrNull() ?: 0 }
+    }
+
+    val balance = monthIncome - totalExpenses
+    val balancePositive = balance >= 0
+
+    Column(modifier = modifier.fillMaxSize()) {
+        // Header with month selector
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.tertiaryContainer)
+                    )
+                )
+                .padding(horizontal = 8.dp, vertical = 10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { onMonthChanged(month.minusMonths(1)) }) {
+                    Text("‹", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Бюджет", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "${month.month.getDisplayName(java.time.format.TextStyle.FULL_STANDALONE, locale).replaceFirstChar { it.titlecase(locale) }} ${month.year}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                IconButton(onClick = { onMonthChanged(month.plusMonths(1)) }) {
+                    Text("›", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Summary cards
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BudgetCard("Доходы", monthIncome, Color(0xFF2E7D32), Modifier.weight(1f))
+                    BudgetCard("Расходы", totalExpenses, Color(0xFFC62828), Modifier.weight(1f))
+                    BudgetCard(
+                        "Баланс", balance,
+                        if (balancePositive) Color(0xFF1565C0) else Color(0xFFB71C1C),
+                        Modifier.weight(1f),
+                        prefix = if (balancePositive) "+" else ""
+                    )
+                }
+            }
+
+            // Balance progress bar
+            if (monthIncome > 0) {
+                item {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Потрачено от дохода", style = MaterialTheme.typography.bodySmall)
+                                val pct = (totalExpenses * 100 / monthIncome.coerceAtLeast(1)).coerceIn(0, 100)
+                                Text("$pct%", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold,
+                                    color = if (pct > 80) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                            }
+                            Box(
+                                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                val spentFraction = (totalExpenses.toFloat() / monthIncome.coerceAtLeast(1)).coerceIn(0f, 1f)
+                                Box(
+                                    modifier = Modifier.fillMaxHeight()
+                                        .fillMaxWidth(spentFraction)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(
+                                            if (spentFraction > 0.8f) MaterialTheme.colorScheme.error
+                                            else MaterialTheme.colorScheme.primary
+                                        )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Category breakdown
+            if (monthExpenses.isNotEmpty()) {
+                item {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("По категориям", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            ExpenseCategory.values().forEach { cat ->
+                                val catTotal = monthExpenses.filter { it.category == cat }.sumOf { it.amount }
+                                if (catTotal > 0) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Text(cat.emoji, fontSize = 16.sp)
+                                            Text(cat.displayName, style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                        Text("$catTotal ₽", style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold, color = cat.color)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Expense list header
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "История расходов (${monthExpenses.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Expense entries
+            if (monthExpenses.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("💸", fontSize = 40.sp)
+                            Spacer(Modifier.height(8.dp))
+                            Text("Нет расходов за этот месяц", style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            } else {
+                items(monthExpenses) { expense ->
+                    val fmt = DateTimeFormatter.ofPattern("d MMM", locale)
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier.size(36.dp).clip(CircleShape).background(expense.category.color.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) { Text(expense.category.emoji, fontSize = 18.sp) }
+                                Column {
+                                    Text(expense.category.displayName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    if (expense.note.isNotBlank())
+                                        Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(expense.date.format(fmt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${expense.amount} ₽", style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold, color = expense.category.color)
+                                IconButton(onClick = {
+                                    onExpensesChange(expenses.filter { it.id != expense.id })
+                                }) {
+                                    Icon(Icons.Outlined.Delete, null, tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // FAB-like add button
+        Button(
+            onClick = { showAddDialog = true },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Icon(Icons.Outlined.Add, null)
+            Spacer(Modifier.width(8.dp))
+            Text("Добавить расход")
+        }
+    }
+
+    if (showAddDialog) {
+        AddExpenseDialog(
+            month = month,
+            onAdd = { entry ->
+                onExpensesChange(expenses + entry)
+                showAddDialog = false
+            },
+            onDismiss = { showAddDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun BudgetCard(label: String, amount: Int, color: Color, modifier: Modifier, prefix: String = "") {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f))
+    ) {
+        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "$prefix$amount ₽",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = color,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+            Text(label, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddExpenseDialog(
+    month: YearMonth,
+    onAdd: (ExpenseEntry) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedCategory by remember { mutableStateOf(ExpenseCategory.FOOD) }
+    var amount by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    var dayOfMonth by remember { mutableStateOf(LocalDate.now().let {
+        if (YearMonth.from(it) == month) it.dayOfMonth.toString() else "1"
+    }) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Добавить расход", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Category selector
+                Text("Категория:", style = MaterialTheme.typography.labelMedium)
+                LazyColumn(modifier = Modifier.height(160.dp)) {
+                    items(ExpenseCategory.values()) { cat ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable { selectedCategory = cat }
+                                .background(if (selectedCategory == cat) cat.color.copy(alpha = 0.12f) else Color.Transparent)
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(cat.emoji, fontSize = 18.sp)
+                            Text(cat.displayName, style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selectedCategory == cat) FontWeight.Bold else FontWeight.Normal)
+                            if (selectedCategory == cat) {
+                                Spacer(Modifier.weight(1f))
+                                Box(Modifier.size(8.dp).clip(CircleShape).background(cat.color))
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = { amount = it.filter { c -> c.isDigit() } },
+                    label = { Text("Сумма (₽)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = dayOfMonth,
+                    onValueChange = { dayOfMonth = it.filter { c -> c.isDigit() }.take(2) },
+                    label = { Text("День месяца (1–${month.lengthOfMonth()})") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("Комментарий (необязательно)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(onClick = onDismiss) { Text("Отмена") }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = {
+                    val amt = amount.toIntOrNull() ?: return@TextButton
+                    val day = dayOfMonth.toIntOrNull()?.coerceIn(1, month.lengthOfMonth()) ?: 1
+                    val date = month.atDay(day)
+                    onAdd(ExpenseEntry(
+                        id = System.currentTimeMillis().toString(),
+                        date = date,
+                        amount = amt,
+                        category = selectedCategory,
+                        note = note.trim()
+                    ))
+                }) { Text("Добавить") }
+            }
+        }
+    )
 }
