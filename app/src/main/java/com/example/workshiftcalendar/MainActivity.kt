@@ -2,6 +2,7 @@ package com.example.workshiftcalendar
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -139,7 +140,8 @@ private data class ShiftDetails(
     val kind: ShiftKind,
     val note: String = "",
     val location: String = "",
-    val customSalary: String = ""
+    val customSalary: String = "",
+    val customHours: String = ""
 )
 
 private data class ShiftTemplate(
@@ -156,7 +158,7 @@ private data class DayCell(val date: LocalDate, val isCurrentMonth: Boolean)
 // Serialisation DTOs
 // ═══════════════════════════════════════════════
 
-private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "")
+private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "", val customHours: String = "")
 private data class ShiftTemplateDto(val id: String = "", val name: String = "", val description: String = "", val pattern: List<String> = emptyList())
 private data class AppDataDto(
     val assignments: Map<String, ShiftDetailsDto> = emptyMap(),
@@ -166,11 +168,11 @@ private data class AppDataDto(
 )
 
 private fun Map<LocalDate, ShiftDetails>.toDto() = entries.associate { (d, v) ->
-    d.toString() to ShiftDetailsDto(v.kind.name, v.note, v.location, v.customSalary)
+    d.toString() to ShiftDetailsDto(v.kind.name, v.note, v.location, v.customSalary, v.customHours)
 }
 
 private fun Map<String, ShiftDetailsDto>.toDomain() = entries.mapNotNull { (ds, dto) ->
-    try { LocalDate.parse(ds) to ShiftDetails(ShiftKind.valueOf(dto.kind), dto.note, dto.location, dto.customSalary) }
+    try { LocalDate.parse(ds) to ShiftDetails(ShiftKind.valueOf(dto.kind), dto.note, dto.location, dto.customSalary, dto.customHours) }
     catch (e: Exception) { null }
 }.toMap()
 
@@ -506,45 +508,62 @@ private fun DayCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
-    val isToday = cell.isCurrentMonth && cell.date == LocalDate.now()
-    val isWeekend = cell.date.dayOfWeek == DayOfWeek.SATURDAY || cell.date.dayOfWeek == DayOfWeek.SUNDAY
-    val bgColor = when {
-        !cell.isCurrentMonth -> Color.Transparent
-        shiftDetails != null && shiftDetails.kind != ShiftKind.OFF -> shiftDetails.kind.lightColor
-        else -> Color.Transparent
-    }
+    val hasShift = cell.isCurrentMonth && shiftDetails != null
+    val isWorking = hasShift && shiftDetails!!.kind != ShiftKind.OFF
 
+    // Card with a colored left border to indicate shift, keeping the date always readable
     Box(
         modifier = Modifier
             .aspectRatio(0.8f)
             .padding(2.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(bgColor)
-            .then(if (isToday) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp)) else Modifier)
+            .background(
+                if (!cell.isCurrentMonth) Color.Transparent
+                else if (isToday) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                else MaterialTheme.colorScheme.surface
+            )
+            .then(
+                when {
+                    isToday -> Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                    isWorking -> Modifier.border(
+                        width = 3.dp,
+                        brush = Brush.verticalGradient(listOf(shiftDetails!!.kind.color, shiftDetails.kind.color.copy(alpha = 0.6f))),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    else -> Modifier
+                }
+            )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.TopCenter
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Column(
+            modifier = Modifier.padding(top = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            // Date number — always clearly visible
             Text(
                 text = cell.date.dayOfMonth.toString(),
-                fontSize = 12.sp,
-                fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Normal,
-                color = if (!cell.isCurrentMonth) Color.Transparent
-                else if (isWeekend) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.onBackground
+                fontSize = 13.sp,
+                fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.SemiBold,
+                color = when {
+                    !cell.isCurrentMonth -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f)
+                    isToday -> MaterialTheme.colorScheme.primary
+                    isWeekend -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
             )
-            if (cell.isCurrentMonth && shiftDetails != null) {
+            // Shift badge
+            if (hasShift) {
                 Box(
-                    modifier = Modifier.size(18.dp).clip(CircleShape).background(shiftDetails.kind.color),
+                    modifier = Modifier.size(20.dp).clip(CircleShape).background(shiftDetails!!.kind.color),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(text = shiftDetails.kind.shortName, fontSize = 8.sp, color = Color.White, fontWeight = FontWeight.Bold)
                 }
-            } else if (!cell.isCurrentMonth) {
-                Text(text = cell.date.dayOfMonth.toString(), fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f))
             }
+            // Note/location dot
             if (shiftDetails?.note?.isNotBlank() == true || shiftDetails?.location?.isNotBlank() == true) {
-                Spacer(Modifier.height(1.dp))
                 Box(Modifier.size(4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
             }
         }
@@ -568,7 +587,7 @@ private fun StatsScreen(
     val filtered = remember(month, assignments) { assignments.filter { (d, _) -> YearMonth.from(d) == month } }
     val workShifts = remember(filtered) { filtered.values.filter { it.kind != ShiftKind.OFF } }
     val totalShifts = workShifts.size
-    val totalHours = workShifts.sumOf { it.kind.hoursPerShift }
+    val totalHours = workShifts.sumOf { it.customHours.toIntOrNull() ?: it.kind.hoursPerShift }
     val totalEarnings = remember(filtered, shiftRates) {
         filtered.values.sumOf { it.customSalary.toIntOrNull() ?: shiftRates[it.kind]?.toIntOrNull() ?: 0 }
     }
@@ -907,6 +926,7 @@ private fun ShiftPickerDialog(
     var currentNote by remember { mutableStateOf(currentDetails?.note ?: "") }
     var currentLocation by remember { mutableStateOf(currentDetails?.location ?: "") }
     var currentCustomSalary by remember { mutableStateOf(currentDetails?.customSalary ?: "") }
+    var currentCustomHours by remember { mutableStateOf(currentDetails?.customHours ?: "") }
 
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
@@ -952,10 +972,17 @@ private fun ShiftPickerDialog(
                 }
                 if (selectedKind != null && selectedKind != ShiftKind.OFF) {
                     val defaultRate = shiftRates[selectedKind] ?: ""
+                    val defaultHours = selectedKind?.hoursPerShift ?: 0
                     OutlinedTextField(
                         value = currentCustomSalary,
                         onValueChange = { currentCustomSalary = it },
                         label = { Text(if (defaultRate.isNotBlank()) "Оплата (ставка: $defaultRate ₽)" else "Оплата за этот день (₽)") },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = currentCustomHours,
+                        onValueChange = { currentCustomHours = it },
+                        label = { Text("Часов отработано (по умолчанию: $defaultHours ч)") },
                         modifier = Modifier.fillMaxWidth(), singleLine = true
                     )
                     OutlinedTextField(
@@ -977,7 +1004,7 @@ private fun ShiftPickerDialog(
                     )
                 }
                 TextButton(
-                    onClick = { selectedKind = null; currentNote = ""; currentLocation = ""; currentCustomSalary = "" },
+                    onClick = { selectedKind = null; currentNote = ""; currentLocation = ""; currentCustomSalary = ""; currentCustomHours = "" },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Очистить день") }
             }
@@ -988,7 +1015,7 @@ private fun ShiftPickerDialog(
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = {
                     onDetailsSaved(
-                        if (selectedKind != null) ShiftDetails(selectedKind!!, currentNote, currentLocation, currentCustomSalary)
+                        if (selectedKind != null) ShiftDetails(selectedKind!!, currentNote, currentLocation, currentCustomSalary, currentCustomHours)
                         else null
                     )
                 }) { Text("Сохранить") }
@@ -1005,7 +1032,11 @@ private fun DayDetailDialog(
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val fmt = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))
+    val coordsRegex = Regex("Lat:\\s*(-?\\d+\\.\\d+),\\s*Lng:\\s*(-?\\d+\\.\\d+)")
+    val coordsMatch = coordsRegex.find(details.location)
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -1015,19 +1046,60 @@ private fun DayDetailDialog(
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Смена: ${details.kind.displayName}", style = MaterialTheme.typography.bodyMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Shift type chip
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(details.kind.lightColor)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(details.kind.color))
+                    Text(details.kind.displayName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                }
+                // Hours
+                val hoursText = details.customHours.ifBlank { null }
+                    ?.let { "⏱ $it ч (факт)" }
+                    ?: if (details.kind != ShiftKind.OFF) "⏱ ${details.kind.hoursPerShift} ч (план)" else null
+                hoursText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                // Salary
+                if (details.customSalary.isNotBlank()) {
+                    Text("💰 ${details.customSalary} ₽", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+                // Location
                 if (details.location.isNotBlank()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Outlined.Place, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                        Text(details.location, style = MaterialTheme.typography.bodySmall)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Outlined.Place, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            Text(details.location, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (coordsMatch != null) {
+                            TextButton(
+                                onClick = {
+                                    val lat = coordsMatch.groupValues[1]
+                                    val lng = coordsMatch.groupValues[2]
+                                    val geoUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng")
+                                    try { context.startActivity(Intent(Intent.ACTION_VIEW, geoUri)) } catch (_: Exception) {}
+                                }
+                            ) { Text("Карта", style = MaterialTheme.typography.labelSmall) }
+                        }
                     }
                 }
+                // Note
                 if (details.note.isNotBlank()) {
-                    Text("📝 ${details.note}", style = MaterialTheme.typography.bodySmall)
-                }
-                if (details.customSalary.isNotBlank()) {
-                    Text("💰 ${details.customSalary} ₽", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "📝 ${details.note}",
+                            modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             }
         },
