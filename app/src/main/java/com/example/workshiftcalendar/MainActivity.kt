@@ -852,7 +852,9 @@ private fun SettingsScreen(
                             label = {
                                 Text(
                                     when (style) {
-                                        AppStyle.MODERN_BLUE -> "Синяя"; AppStyle.WARM_ORANGE -> "Оранжевая"; AppStyle.SLATE_GRAY -> "Серая"
+                                        AppStyle.MODERN_BLUE -> "Синяя"
+                                        AppStyle.DARK_AMOLED -> "Тёмная"
+                                        AppStyle.WARM_PASTEL -> "Тёплая"
                                     },
                                     fontSize = 11.sp
                                 )
