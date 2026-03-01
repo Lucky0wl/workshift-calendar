@@ -1824,37 +1824,36 @@ private fun AddExpenseDialog(
             val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
             val bitmap = BitmapFactory.decodeStream(inputStream)
             val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
-            val recognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
-                com.google.mlkit.vision.text.latin.TextRecognizerOptions.DEFAULT_OPTIONS
-            )
+            val options = com.google.mlkit.vision.barcode.BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
+                .build()
+            val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient(options)
 
-            recognizer.process(image)
-                .addOnSuccessListener { visionText ->
-                    val lines = visionText.text.split("\n")
-                    var maxNumber = 0
-                    for (line in lines) {
-                        // Extract numbers: look for formats like 1500.00, 1500, 1500,00
-                        val matches = Regex("\\d+([.,]\\d{1,2})?").findAll(line)
-                        for (match in matches) {
-                            val strVal = match.value.replace(",", ".")
-                            val parsed = strVal.toFloatOrNull()?.toInt() ?: 0
-                            // Ignore giant numbers like INNs, barcodes, or phones.
-                            // Receipts typically are under 1,000,000 outputting <= 8 characters.
-                            if (parsed in (maxNumber + 1)..999999 && strVal.length <= 8) {
-                                maxNumber = parsed
+            scanner.process(image)
+                .addOnSuccessListener { barcodes ->
+                    var foundSum = false
+                    for (barcode in barcodes) {
+                        val rawValue = barcode.rawValue
+                        if (rawValue != null && rawValue.contains("t=") && rawValue.contains("s=") && rawValue.contains("fn=")) {
+                            // Extract s=...
+                            val sumMatch = Regex("s=([\\d.]+)").find(rawValue)
+                            if (sumMatch != null) {
+                                val sumVal = sumMatch.groupValues[1]
+                                val rubles = sumVal.toFloatOrNull() ?: 0f
+                                amount = rubles.toInt().toString()
+                                note = "🧾 Чек (QR: Итог)"
+                                foundSum = true
+                                android.widget.Toast.makeText(context, "QR чек распознан: ${rubles.toInt()} ₽", android.widget.Toast.LENGTH_SHORT).show()
+                                break
                             }
                         }
                     }
-                    if (maxNumber > 0) {
-                        amount = maxNumber.toString()
-                        note = "🧾 Чек"
-                        android.widget.Toast.makeText(context, "Чек распознан: $maxNumber ₽", android.widget.Toast.LENGTH_SHORT).show()
-                    } else {
-                        android.widget.Toast.makeText(context, "Не удалось найти сумму на чеке", android.widget.Toast.LENGTH_SHORT).show()
+                    if (!foundSum) {
+                        android.widget.Toast.makeText(context, "QR-код кассового чека не найден", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
                 .addOnFailureListener { e ->
-                    android.widget.Toast.makeText(context, "Ошибка сканирования", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, "Ошибка сканирования QR", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 .addOnCompleteListener { isScanning = false }
         } catch (e: Exception) {

@@ -11,8 +11,8 @@ android {
         applicationId "com.workshifts.calendar"
         minSdk 26
         targetSdk 34
-        versionCode 11
-        versionName "2.6.1"
+        versionCode 12
+        versionName "2.7.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -90,8 +90,8 @@ dependencies {
     // Map Picker (OSMDroid)
     implementation 'org.osmdroid:osmdroid-android:6.1.18'
 
-    // ML Kit Text Recognition (Receipt Scanner)
-    implementation 'com.google.android.gms:play-services-mlkit-text-recognition:19.0.0'
+    // ML Kit Barcode Scanning (QR Receipt Scanner)
+    implementation 'com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.0'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
