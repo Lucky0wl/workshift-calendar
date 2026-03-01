@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -37,13 +39,41 @@ jobs:
           "./$GRADLE_DIR/bin/gradle" wrapper --gradle-version=8.5 --no-daemon --no-configuration-cache
           rm -rf "$GRADLE_DIR" gradle.zip
 
+      - name: Get version info
+        id: version
+        run: |
+          VERSION_NAME=$(grep 'versionName' app/build.gradle | grep -v '//' | awk '{print $2}' | tr -d '"')
+          VERSION_CODE=$(grep 'versionCode' app/build.gradle | grep -v '//' | awk '{print $2}')
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "commit=$COMMIT_SHORT" >> $GITHUB_OUTPUT
+
       - name: Build debug APK
         run: |
           export ANDROID_HOME="${ANDROID_SDK_ROOT:-$HOME/.android/sdk}"
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish GitHub Release (latest)
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete existing "latest" release and tag if they exist
+          gh release delete latest --yes 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+
+          # Create new "latest" release with version info in body
+          gh release create latest \
+            --title "Version ${{ steps.version.outputs.name }} (build ${{ steps.version.outputs.code }})" \
+            --notes "version_code=${{ steps.version.outputs.code }}
+version_name=${{ steps.version.outputs.name }}
+commit=${{ steps.version.outputs.commit }}
+built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            app/build/outputs/apk/debug/app-debug.apk

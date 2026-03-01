@@ -92,17 +92,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.workshiftcalendar.BuildConfig
 import com.example.workshiftcalendar.ui.theme.AppStyle
 import com.example.workshiftcalendar.ui.theme.WorkshiftTheme
 import com.google.android.gms.location.LocationServices
 import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -959,6 +966,9 @@ private fun SettingsScreen(
                 }
             }
         }
+
+        // Update Center
+        UpdateCenterCard()
     }
 }
 
@@ -1597,4 +1607,184 @@ private fun AddExpenseDialog(
             }
         }
     )
+}
+
+// ═══════════════════════════════════════════════
+// Update Center
+// ═══════════════════════════════════════════════
+
+private data class GitHubRelease(
+    val tag_name: String = "",
+    val name: String = "",
+    val body: String = "",
+    val assets: List<GitHubAsset> = emptyList()
+)
+private data class GitHubAsset(
+    val name: String = "",
+    val browser_download_url: String = "",
+    val size: Long = 0
+)
+
+private suspend fun fetchLatestRelease(): GitHubRelease? = withContext(Dispatchers.IO) {
+    try {
+        val url = URL("https://api.github.com/repos/Lucky0wl/workshift-calendar/releases/latest")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
+        conn.connectTimeout = 8000
+        conn.readTimeout = 8000
+        if (conn.responseCode == 200) {
+            val json = conn.inputStream.bufferedReader().readText()
+            Gson().fromJson(json, GitHubRelease::class.java)
+        } else null
+    } catch (_: Exception) { null }
+}
+
+private fun parseVersionCode(body: String): Int? =
+    Regex("version_code=(\\d+)").find(body)?.groupValues?.get(1)?.toIntOrNull()
+
+private fun parseVersionName(body: String): String? =
+    Regex("version_name=([\\d.]+)").find(body)?.groupValues?.get(1)
+
+enum class UpdateState { IDLE, CHECKING, UP_TO_DATE, UPDATE_AVAILABLE, DOWNLOADING, DOWNLOADED, ERROR }
+
+@Composable
+fun UpdateCenterCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var updateState by remember { mutableStateOf(UpdateState.IDLE) }
+    var latestRelease by remember { mutableStateOf<GitHubRelease?>(null) }
+    var downloadId by remember { mutableStateOf<Long?>(null) }
+    var downloadedApkFile by remember { mutableStateOf<File?>(null) }
+
+    // Poll download completion
+    LaunchedEffect(downloadId) {
+        val id = downloadId ?: return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            val dm = context.getSystemService(android.app.DownloadManager::class.java)
+            while (true) {
+                val cursor = dm.query(android.app.DownloadManager.Query().setFilterById(id))
+                if (cursor.moveToFirst()) {
+                    val status = cursor.getInt(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS))
+                    if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                        cursor.close()
+                        break
+                    } else if (status == android.app.DownloadManager.STATUS_FAILED) {
+                        cursor.close()
+                        updateState = UpdateState.ERROR
+                        return@withContext
+                    }
+                }
+                cursor.close()
+                kotlinx.coroutines.delay(1000)
+            }
+            updateState = UpdateState.DOWNLOADED
+        }
+    }
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("🔄 Центр обновлений", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            // Status row
+            val (statusText, statusColor) = when (updateState) {
+                UpdateState.IDLE -> "Нажмите «Проверить» для поиска обновлений" to MaterialTheme.colorScheme.onSurfaceVariant
+                UpdateState.CHECKING -> "⏳ Проверяем…" to MaterialTheme.colorScheme.primary
+                UpdateState.UP_TO_DATE -> "✅ У вас последняя версия (${BuildConfig.VERSION_NAME})" to Color(0xFF2E7D32)
+                UpdateState.UPDATE_AVAILABLE -> {
+                    val vn = latestRelease?.let { parseVersionName(it.body) } ?: latestRelease?.name ?: ""
+                    "🆕 Доступна версия $vn" to MaterialTheme.colorScheme.primary
+                }
+                UpdateState.DOWNLOADING -> "⬇️ Загружаем APK…" to MaterialTheme.colorScheme.secondary
+                UpdateState.DOWNLOADED -> "✅ Загружено! Готово к установке" to Color(0xFF2E7D32)
+                UpdateState.ERROR -> "❌ Ошибка. Проверьте соединение" to MaterialTheme.colorScheme.error
+            }
+            Text(statusText, style = MaterialTheme.typography.bodySmall, color = statusColor)
+
+            // Buttons
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Check for updates button
+                if (updateState != UpdateState.DOWNLOADING) {
+                    OutlinedButton(
+                        onClick = {
+                            updateState = UpdateState.CHECKING
+                            scope.launch {
+                                val release = fetchLatestRelease()
+                                if (release == null) {
+                                    updateState = UpdateState.ERROR
+                                    return@launch
+                                }
+                                latestRelease = release
+                                val remoteCode = parseVersionCode(release.body)
+                                updateState = if (remoteCode != null && remoteCode > BuildConfig.VERSION_CODE) {
+                                    UpdateState.UPDATE_AVAILABLE
+                                } else {
+                                    UpdateState.UP_TO_DATE
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = updateState != UpdateState.CHECKING
+                    ) {
+                        Text(if (updateState == UpdateState.CHECKING) "Проверяем…" else "Проверить")
+                    }
+                }
+
+                // Download button
+                if (updateState == UpdateState.UPDATE_AVAILABLE) {
+                    Button(
+                        onClick = {
+                            val apkUrl = latestRelease?.assets?.firstOrNull()?.browser_download_url
+                                ?: return@Button
+                            updateState = UpdateState.DOWNLOADING
+                            val dm = context.getSystemService(android.app.DownloadManager::class.java)
+                            val request = android.app.DownloadManager.Request(Uri.parse(apkUrl))
+                                .setTitle("Workshift — обновление")
+                                .setDescription("Загрузка новой версии...")
+                                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                .setDestinationInExternalFilesDir(context, "updates", "app-update.apk")
+                            downloadId = dm.enqueue(request)
+                            downloadedApkFile = File(context.getExternalFilesDir("updates"), "app-update.apk")
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Загрузить")
+                    }
+                }
+
+                // Install button
+                if (updateState == UpdateState.DOWNLOADED) {
+                    Button(
+                        onClick = {
+                            val file = downloadedApkFile ?: return@Button
+                            try {
+                                val apkUri = FileProvider.getUriForFile(
+                                    context, "${context.packageName}.provider", file
+                                )
+                                val install = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(install)
+                            } catch (_: Exception) {
+                                updateState = UpdateState.ERROR
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Установить")
+                    }
+                }
+            }
+        }
+    }
 }
