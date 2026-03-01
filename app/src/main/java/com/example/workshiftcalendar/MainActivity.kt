@@ -138,6 +138,25 @@ import java.io.File
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+
+data class ProverkaChekaResponse(
+    val code: Int,
+    val data: ProverkaChekaData?
+)
+
+data class ProverkaChekaData(
+    val json: ProverkaChekaJson?
+)
+
+data class ProverkaChekaJson(
+    val items: List<ProverkaChekaItem>?
+)
+
+data class ProverkaChekaItem(
+    val name: String,
+    val sum: Int
+)
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -1831,31 +1850,84 @@ private fun AddExpenseDialog(
 
             scanner.process(image)
                 .addOnSuccessListener { barcodes ->
-                    var foundSum = false
+                    var foundQr = false
                     for (barcode in barcodes) {
                         val rawValue = barcode.rawValue
                         if (rawValue != null && rawValue.contains("t=") && rawValue.contains("s=") && rawValue.contains("fn=")) {
-                            // Extract s=...
+                            foundQr = true
+                            android.widget.Toast.makeText(context, "QR найден, загрузка чека...", android.widget.Toast.LENGTH_SHORT).show()
+                            
+                            // 1. Extract exact sum from QR as fallback
                             val sumMatch = Regex("s=([\\d.]+)").find(rawValue)
-                            if (sumMatch != null) {
-                                val sumVal = sumMatch.groupValues[1]
-                                val rubles = sumVal.toFloatOrNull() ?: 0f
-                                amount = rubles.toInt().toString()
-                                note = "🧾 Чек (QR: Итог)"
-                                foundSum = true
-                                android.widget.Toast.makeText(context, "QR чек распознан: ${rubles.toInt()} ₽", android.widget.Toast.LENGTH_SHORT).show()
-                                break
+                            val fallbackSum = sumMatch?.groupValues?.get(1)?.toFloatOrNull()?.toInt() ?: 0
+
+                            // 2. Fetch from ProverkaCheka API
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                try {
+                                    val url = java.net.URL("https://proverkacheka.com/api/v1/check/get")
+                                    val connection = url.openConnection() as java.net.HttpURLConnection
+                                    connection.requestMethod = "POST"
+                                    connection.doOutput = true
+                                    connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+
+                                    val postData = "qr=${java.net.URLEncoder.encode(rawValue, "UTF-8")}&token=proverkacheka.com"
+                                    connection.outputStream.use { os ->
+                                        val input = postData.toByteArray(Charsets.UTF_8)
+                                        os.write(input, 0, input.size)
+                                    }
+
+                                    val responseCode = connection.responseCode
+                                    if (responseCode == 200) {
+                                        val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+                                        val parsed = com.google.gson.Gson().fromJson(responseText, ProverkaChekaResponse::class.java)
+                                        
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            if (parsed.code == 1 && parsed.data?.json?.items != null) {
+                                                // Success: Build shopping list
+                                                val items = parsed.data.json.items
+                                                val itemsText = items.joinToString("\n") { "• ${it.name} — ${it.sum / 100.0} ₽" }
+                                                
+                                                val totalSumKopecks = items.sumOf { it.sum }
+                                                amount = (totalSumKopecks / 100).toString()
+                                                note = "🧾 Чек:\n$itemsText"
+                                                android.widget.Toast.makeText(context, "Чек успешно загружен!", android.widget.Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                // API Error / Limits / Not found
+                                                amount = fallbackSum.toString()
+                                                note = "🧾 Чек (QR: Итог)"
+                                                android.widget.Toast.makeText(context, "API не вернул товары. Используется Итог из QR.", android.widget.Toast.LENGTH_LONG).show()
+                                            }
+                                            isScanning = false
+                                        }
+                                    } else {
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            amount = fallbackSum.toString()
+                                            note = "🧾 Чек (QR: Итог)"
+                                            android.widget.Toast.makeText(context, "Ошибка API чеков. Используется Итог из QR.", android.widget.Toast.LENGTH_SHORT).show()
+                                            isScanning = false
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        amount = fallbackSum.toString()
+                                        note = "🧾 Чек (QR: Итог)"
+                                        android.widget.Toast.makeText(context, "Сбой загрузки чека. Используется Итог из QR.", android.widget.Toast.LENGTH_SHORT).show()
+                                        isScanning = false
+                                    }
+                                }
                             }
+                            break // Stop after finding first receipt QR
                         }
                     }
-                    if (!foundSum) {
+                    if (!foundQr) {
                         android.widget.Toast.makeText(context, "QR-код кассового чека не найден", android.widget.Toast.LENGTH_SHORT).show()
+                        isScanning = false
                     }
                 }
                 .addOnFailureListener { e ->
                     android.widget.Toast.makeText(context, "Ошибка сканирования QR", android.widget.Toast.LENGTH_SHORT).show()
+                    isScanning = false
                 }
-                .addOnCompleteListener { isScanning = false }
         } catch (e: Exception) {
             isScanning = false
         }
