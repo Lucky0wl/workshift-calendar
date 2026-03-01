@@ -20,13 +20,27 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            def keystorePath = System.getenv("KEYSTORE_PATH")
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword System.getenv("KEYSTORE_PASSWORD") ?: "workshift2024"
+                keyAlias System.getenv("KEY_ALIAS") ?: "workshift"
+                keyPassword System.getenv("KEY_PASSWORD") ?: "workshift2024"
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
         debug {
-            applicationIdSuffix ".debug"
+            // No applicationIdSuffix — same package ID as release so updates install cleanly
+            signingConfig signingConfigs.release  // Use consistent signing for debug too
         }
     }
 
