@@ -1830,28 +1830,31 @@ private fun AddExpenseDialog(
 
             recognizer.process(image)
                 .addOnSuccessListener { visionText ->
-                    // Try to find receipt totals like "ИТОГ", "СУММА", "ОПЛАТЕ"
                     val lines = visionText.text.split("\n")
                     var maxNumber = 0
                     for (line in lines) {
-                        val uppercaseLine = line.uppercase()
-                        if (uppercaseLine.contains("ИТОГ") || uppercaseLine.contains("СУММА") || uppercaseLine.contains("ОПЛАТЕ")) {
-                            // Extract numbers
-                            val numberRegex = Regex("\\d+([.,]\\d+)?")
-                            val match = numberRegex.findAll(line).lastOrNull() // usually the price is at the end
-                            if (match != null) {
-                                val parsed = match.value.replace(",", ".").toFloatOrNull()?.toInt() ?: 0
-                                if (parsed > maxNumber) maxNumber = parsed
+                        // Extract numbers: look for formats like 1500.00, 1500, 1500,00
+                        val matches = Regex("\\d+([.,]\\d{1,2})?").findAll(line)
+                        for (match in matches) {
+                            val strVal = match.value.replace(",", ".")
+                            val parsed = strVal.toFloatOrNull()?.toInt() ?: 0
+                            // Ignore giant numbers like INNs, barcodes, or phones.
+                            // Receipts typically are under 1,000,000 outputting <= 8 characters.
+                            if (parsed in (maxNumber + 1)..999999 && strVal.length <= 8) {
+                                maxNumber = parsed
                             }
                         }
                     }
                     if (maxNumber > 0) {
                         amount = maxNumber.toString()
                         note = "🧾 Чек"
+                        android.widget.Toast.makeText(context, "Чек распознан: $maxNumber ₽", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        android.widget.Toast.makeText(context, "Не удалось найти сумму на чеке", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
                 .addOnFailureListener { e ->
-                    // Silent fail
+                    android.widget.Toast.makeText(context, "Ошибка сканирования", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 .addOnCompleteListener { isScanning = false }
         } catch (e: Exception) {
