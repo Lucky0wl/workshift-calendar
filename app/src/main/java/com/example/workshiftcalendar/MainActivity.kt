@@ -50,7 +50,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
-import java.io.File
 import java.io.FileOutputStream
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -745,7 +744,6 @@ private fun StatsScreen(
 
     var calculateTax by remember { mutableStateOf(false) }
     val displayEarnings = if (calculateTax) (totalEarnings * 0.87).toInt() else totalEarnings
-    val context = LocalContext.current
 
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -2248,7 +2246,7 @@ fun MapPickerScreen(
 // PDF Export
 // ═══════════════════════════════════════════════
 
-fun exportToPdf(context: Context, month: YearMonth, filtered: Map<LocalDate, ShiftDetails>, shiftRates: Map<ShiftKind, String>) {
+private fun exportToPdf(context: Context, month: YearMonth, filtered: Map<LocalDate, ShiftDetails>, shiftRates: Map<ShiftKind, String>) {
     val pdfDocument = PdfDocument()
     val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4 size
     val page = pdfDocument.startPage(pageInfo)
