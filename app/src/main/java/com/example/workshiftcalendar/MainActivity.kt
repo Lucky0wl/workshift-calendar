@@ -39,6 +39,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -418,7 +420,27 @@ private fun CalendarScreen(
     }
     val monthHours = remember(monthFiltered) { monthFiltered.values.sumOf { it.kind.hoursPerShift } }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    var offsetX by remember { mutableStateOf(0f) }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(month) {
+                detectHorizontalDragGestures(
+                    onDragEnd = { offsetX = 0f }
+                ) { change, dragAmount ->
+                    change.consume()
+                    offsetX += dragAmount
+                    if (offsetX > 200f) {
+                        onMonthChanged(month.minusMonths(1))
+                        offsetX = 0f
+                    } else if (offsetX < -200f) {
+                        onMonthChanged(month.plusMonths(1))
+                        offsetX = 0f
+                    }
+                }
+            }
+    ) {
         // Header
         Box(
             modifier = Modifier
@@ -742,6 +764,38 @@ private fun StatsScreen(
             }
         }
 
+        // All locations map button
+        val coordsRegex = Regex("Lat:\\s*(-?\\d+\\.\\d+),\\s*Lng:\\s*(-?\\d+\\.\\d+)")
+        val uniqueLocations = assignments.values.map { it.location }.filter { it.isNotBlank() && coordsRegex.containsMatchIn(it) }.distinct()
+        if (uniqueLocations.isNotEmpty()) {
+            val context = LocalContext.current
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Outlined.Place, null, tint = MaterialTheme.colorScheme.primary)
+                        Text("Мои объекты на карте", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    }
+                    Text("Сохранено уникальных мест работы с геометками: ${uniqueLocations.size}.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(
+                        onClick = {
+                            val coords = uniqueLocations.mapNotNull { loc ->
+                                val m = coordsRegex.find(loc)
+                                if (m != null) "${m.groupValues[1]},${m.groupValues[2]}" else null
+                            }
+                            if (coords.isNotEmpty()) {
+                                // Maps hack: 'dir' trick connects all points so they all display as markers
+                                val url = "https://www.google.com/maps/dir/" + coords.joinToString("/")
+                                try { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) } catch (_: Exception) {}
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Открыть на Google Картах")
+                    }
+                }
+            }
+        }
+
         // Shift breakdown
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1005,6 +1059,8 @@ private fun ShiftPickerDialog(
     var currentLocation by remember { mutableStateOf(currentDetails?.location ?: "") }
     var currentCustomSalary by remember { mutableStateOf(currentDetails?.customSalary ?: "") }
     var currentCustomHours by remember { mutableStateOf(currentDetails?.customHours ?: "") }
+    var isSaving by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
@@ -1091,12 +1147,38 @@ private fun ShiftPickerDialog(
             Row {
                 TextButton(onClick = onDismiss) { Text("Отмена") }
                 Spacer(Modifier.width(8.dp))
-                TextButton(onClick = {
-                    onDetailsSaved(
-                        if (selectedKind != null) ShiftDetails(selectedKind!!, currentNote, currentLocation, currentCustomSalary, currentCustomHours)
-                        else null
-                    )
-                }) { Text("Сохранить") }
+                TextButton(
+                    enabled = !isSaving,
+                    onClick = {
+                        if (selectedKind == null) {
+                            onDetailsSaved(null)
+                            return@TextButton
+                        }
+                        val loc = currentLocation.trim()
+                        if (loc.isNotBlank() && !loc.contains("Lat:")) {
+                            isSaving = true
+                            scope.launch(Dispatchers.IO) {
+                                val geocoder = android.location.Geocoder(context, Locale.getDefault())
+                                val addresses = try {
+                                    @Suppress("DEPRECATION")
+                                    geocoder.getFromLocationName(loc, 1)
+                                } catch (_: Exception) { null }
+
+                                val finalLoc = if (!addresses.isNullOrEmpty()) {
+                                    val addr = addresses[0]
+                                    "$loc (Lat: ${String.format(Locale.US, "%.4f", addr.latitude)}, Lng: ${String.format(Locale.US, "%.4f", addr.longitude)})"
+                                } else loc
+
+                                withContext(Dispatchers.Main) {
+                                    onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, finalLoc, currentCustomSalary, currentCustomHours))
+                                    isSaving = false
+                                }
+                            }
+                        } else {
+                            onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, loc, currentCustomSalary, currentCustomHours))
+                        }
+                    }
+                ) { Text(if (isSaving) "Поиск…" else "Сохранить") }
             }
         }
     )
