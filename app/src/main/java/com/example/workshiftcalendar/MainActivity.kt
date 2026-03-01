@@ -472,10 +472,14 @@ private fun CalendarScreen(
                 DayCard(
                     cell = cell,
                     shiftDetails = shiftDetails,
-                    onClick = { if (cell.isCurrentMonth) showShiftDialogForDate = cell.date },
+                    onClick = {
+                        if (cell.isCurrentMonth) {
+                            if (shiftDetails != null) showDetailForDate = cell.date  // просмотр
+                            else showShiftDialogForDate = cell.date                  // создать смену
+                        }
+                    },
                     onLongClick = {
-                        if (cell.isCurrentMonth && shiftDetails != null) showDetailForDate = cell.date
-                        else if (cell.isCurrentMonth) showShiftDialogForDate = cell.date
+                        if (cell.isCurrentMonth) showShiftDialogForDate = cell.date  // редактировать
                     }
                 )
             }
