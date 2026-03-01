@@ -11,6 +11,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,10 +47,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
+import java.io.File
+import java.io.FileOutputStream
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import org.osmdroid.views.MapView
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.views.overlay.MapEventsOverlay
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -72,6 +94,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -252,6 +275,7 @@ private fun builtInTemplates() = listOf(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        org.osmdroid.config.Configuration.getInstance().load(this, getSharedPreferences("osmdroid", MODE_PRIVATE))
         setContent { WorkshiftAppRoot() }
     }
 }
@@ -493,26 +517,40 @@ private fun CalendarScreen(
         }
 
         // Calendar grid
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(7),
+        AnimatedContent(
+            targetState = month,
+            transitionSpec = {
+                if (targetState.isAfter(initialState)) {
+                    slideInHorizontally { width -> width } + fadeIn() togetherWith slideOutHorizontally { width -> -width } + fadeOut()
+                } else {
+                    slideInHorizontally { width -> -width } + fadeIn() togetherWith slideOutHorizontally { width -> width } + fadeOut()
+                }
+            },
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)
-        ) {
-            items(days) { cell ->
-                val shiftDetails = if (cell.isCurrentMonth) assignments[cell.date] else null
-                DayCard(
-                    cell = cell,
-                    shiftDetails = shiftDetails,
-                    onClick = {
-                        if (cell.isCurrentMonth) {
-                            if (shiftDetails != null) showDetailForDate = cell.date  // просмотр
-                            else showShiftDialogForDate = cell.date                  // создать смену
+            label = "month_anim"
+        ) { targetMonth ->
+            val targetDays = remember(targetMonth) { buildMonthGrid(targetMonth) }
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(7),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+            ) {
+                items(targetDays) { cell ->
+                    val shiftDetails = if (cell.isCurrentMonth) assignments[cell.date] else null
+                    DayCard(
+                        cell = cell,
+                        shiftDetails = shiftDetails,
+                        onClick = {
+                            if (cell.isCurrentMonth) {
+                                if (shiftDetails != null) showDetailForDate = cell.date  // просмотр
+                                else showShiftDialogForDate = cell.date                  // создать смену
+                            }
+                        },
+                        onLongClick = {
+                            if (cell.isCurrentMonth) showShiftDialogForDate = cell.date  // редактировать
                         }
-                    },
-                    onLongClick = {
-                        if (cell.isCurrentMonth) showShiftDialogForDate = cell.date  // редактировать
-                    }
-                )
+                    )
+                }
             }
         }
 
@@ -705,6 +743,10 @@ private fun StatsScreen(
         buildShareText(month, filtered, shiftRates, locale)
     }
 
+    var calculateTax by remember { mutableStateOf(false) }
+    val displayEarnings = if (calculateTax) (totalEarnings * 0.87).toInt() else totalEarnings
+    val context = LocalContext.current
+
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -732,7 +774,16 @@ private fun StatsScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SummaryCard("Смен", totalShifts.toString(), MaterialTheme.colorScheme.primaryContainer, Modifier.weight(1f))
             SummaryCard("Часов", totalHours.toString(), MaterialTheme.colorScheme.secondaryContainer, Modifier.weight(1f))
-            SummaryCard("Заработок", if (totalEarnings > 0) "$totalEarnings ₽" else "—", MaterialTheme.colorScheme.tertiaryContainer, Modifier.weight(1f))
+            SummaryCard(if (calculateTax) "На руки" else "Начислено", if (displayEarnings > 0) "$displayEarnings ₽" else "—", MaterialTheme.colorScheme.tertiaryContainer, Modifier.weight(1f))
+        }
+
+        // Tax toggle
+        if (totalEarnings > 0) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+                Text("Вычесть НДФЛ (13%)", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.width(8.dp))
+                Switch(checked = calculateTax, onCheckedChange = { calculateTax = it })
+            }
         }
 
         // Bar chart
@@ -768,7 +819,6 @@ private fun StatsScreen(
         val coordsRegex = Regex("Lat:\\s*(-?\\d+\\.\\d+),\\s*Lng:\\s*(-?\\d+\\.\\d+)")
         val uniqueLocations = assignments.values.map { it.location }.filter { it.isNotBlank() && coordsRegex.containsMatchIn(it) }.distinct()
         if (uniqueLocations.isNotEmpty()) {
-            val context = LocalContext.current
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -783,7 +833,6 @@ private fun StatsScreen(
                                 if (m != null) "${m.groupValues[1]},${m.groupValues[2]}" else null
                             }
                             if (coords.isNotEmpty()) {
-                                // Maps hack: 'dir' trick connects all points so they all display as markers
                                 val url = "https://www.google.com/maps/dir/" + coords.joinToString("/")
                                 try { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) } catch (_: Exception) {}
                             }
@@ -793,6 +842,16 @@ private fun StatsScreen(
                         Text("Открыть на Google Картах")
                     }
                 }
+            }
+        }
+
+        // Export PDF
+        if (filtered.isNotEmpty()) {
+            Button(
+                onClick = { exportToPdf(context, month, filtered, shiftRates) },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            ) {
+                Text("Скачать PDF (Табель за месяц)")
             }
         }
 
@@ -1060,6 +1119,7 @@ private fun ShiftPickerDialog(
     var currentCustomSalary by remember { mutableStateOf(currentDetails?.customSalary ?: "") }
     var currentCustomHours by remember { mutableStateOf(currentDetails?.customHours ?: "") }
     var isSaving by remember { mutableStateOf(false) }
+    var showMapPicker by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val context = LocalContext.current
@@ -1125,8 +1185,13 @@ private fun ShiftPickerDialog(
                         label = { Text("Локация / Объект") },
                         modifier = Modifier.fillMaxWidth(),
                         trailingIcon = {
-                            IconButton(onClick = fetchLocation) {
-                                Icon(Icons.Outlined.Place, contentDescription = "GPS", tint = MaterialTheme.colorScheme.primary)
+                            Row {
+                                IconButton(onClick = { showMapPicker = true }) {
+                                    Icon(Icons.Outlined.Map, contentDescription = "Map Picker", tint = MaterialTheme.colorScheme.secondary)
+                                }
+                                IconButton(onClick = fetchLocation) {
+                                    Icon(Icons.Outlined.Place, contentDescription = "GPS", tint = MaterialTheme.colorScheme.primary)
+                                }
                             }
                         }
                     )
@@ -1182,6 +1247,25 @@ private fun ShiftPickerDialog(
             }
         }
     )
+
+    if (showMapPicker) {
+        Dialog(onDismissRequest = { showMapPicker = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            val coordsRegex = Regex("Lat:\\s*(-?\\d+\\.\\d+),\\s*Lng:\\s*(-?\\d+\\.\\d+)")
+            val match = coordsRegex.find(currentLocation)
+            val initialLat = match?.groupValues?.get(1)?.toDoubleOrNull()
+            val initialLng = match?.groupValues?.get(2)?.toDoubleOrNull()
+            
+            MapPickerScreen(
+                initialLat = initialLat,
+                initialLng = initialLng,
+                onLocationPicked = { lat, lng ->
+                    currentLocation = "Lat: ${String.format(Locale.US, "%.4f", lat)}, Lng: ${String.format(Locale.US, "%.4f", lng)}"
+                    showMapPicker = false
+                },
+                onCancel = { showMapPicker = false }
+            )
+        }
+    }
 }
 
 @Composable
@@ -2090,3 +2174,149 @@ suspend fun fetchWeatherForDate(lat: Double, lon: Double, date: LocalDate): Weat
             WeatherInfo(emoji, desc, tempMin, tempMax, precipProb)
         } catch (_: Exception) { null }
     }
+
+// ═══════════════════════════════════════════════
+// Map Picker (OSMDroid)
+// ═══════════════════════════════════════════════
+
+@Composable
+fun MapPickerScreen(
+    initialLat: Double?,
+    initialLng: Double?,
+    onLocationPicked: (Double, Double) -> Unit,
+    onCancel: () -> Unit
+) {
+    var pickedPoint by remember { mutableStateOf<GeoPoint?>(if (initialLat != null && initialLng != null) GeoPoint(initialLat, initialLng) else null) }
+
+    Column(Modifier.fillMaxSize().background(Color.White)) {
+        // top bar
+        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onCancel) { Icon(Icons.Outlined.ArrowBack, "Cancel") }
+            Text("Выберите точку", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Button(onClick = { pickedPoint?.let { onLocationPicked(it.latitude, it.longitude) } }, enabled = pickedPoint != null) {
+                Text("Готово")
+            }
+        }
+
+        // map
+        AndroidView(
+            modifier = Modifier.weight(1f),
+            factory = { ctx ->
+                MapView(ctx).apply {
+                    setTileSource(TileSourceFactory.MAPNIK)
+                    setMultiTouchControls(true)
+                    controller.setZoom(12.0)
+
+                    val overlayReceiver = object : MapEventsReceiver {
+                        override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
+                            p?.let {
+                                pickedPoint = it
+                                overlays.removeAll { overlay -> overlay is Marker }
+                                val marker = Marker(this@apply)
+                                marker.position = it
+                                marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                overlays.add(marker)
+                                invalidate()
+                            }
+                            return true
+                        }
+                        override fun longPressHelper(p: GeoPoint?): Boolean = false
+                    }
+                    overlays.add(MapEventsOverlay(overlayReceiver))
+
+                    if (initialLat != null && initialLng != null) {
+                        val pt = GeoPoint(initialLat, initialLng)
+                        controller.setCenter(pt)
+                        val marker = Marker(this)
+                        marker.position = pt
+                        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        overlays.add(marker)
+                    } else {
+                        // Default center (Moscow for example)
+                        controller.setCenter(GeoPoint(55.7558, 37.6173))
+                    }
+                }
+            },
+            update = { view ->
+                // Map automatically handles updates through its own logic in this simple use-case
+            }
+        )
+    }
+}
+
+// ═══════════════════════════════════════════════
+// PDF Export
+// ═══════════════════════════════════════════════
+
+fun exportToPdf(context: Context, month: YearMonth, filtered: Map<LocalDate, ShiftDetails>, shiftRates: Map<ShiftKind, String>) {
+    val pdfDocument = PdfDocument()
+    val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4 size
+    val page = pdfDocument.startPage(pageInfo)
+    val canvas = page.canvas
+    val paint = Paint().apply {
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        textSize = 14f
+    }
+    val titlePaint = Paint().apply {
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        textSize = 18f
+    }
+
+    var y = 50f
+    canvas.drawText("Отчет по сменам: ${month.month.name} ${month.year}", 50f, y, titlePaint)
+    y += 40f
+
+    var totalEarnings = 0
+    var totalHours = 0
+    val sortedShifts = filtered.entries.sortedBy { it.key.dayOfMonth }
+
+    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    canvas.drawText("Дата", 50f, y, paint)
+    canvas.drawText("Смена", 150f, y, paint)
+    canvas.drawText("Часы", 300f, y, paint)
+    canvas.drawText("Заработано", 400f, y, paint)
+    y += 20f
+
+    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+    for ((date, details) in sortedShifts) {
+        if (details.kind == ShiftKind.OFF) continue
+        val hours = details.customHours.toIntOrNull() ?: details.kind.hoursPerShift
+        val earnings = details.customSalary.toIntOrNull() ?: shiftRates[details.kind]?.toIntOrNull() ?: 0
+        
+        canvas.drawText(date.toString(), 50f, y, paint)
+        canvas.drawText(details.kind.displayName, 150f, y, paint)
+        canvas.drawText("$hours ч", 300f, y, paint)
+        canvas.drawText("$earnings ₽", 400f, y, paint)
+        
+        totalHours += hours
+        totalEarnings += earnings
+        y += 20f
+        
+        if (y > 800f) break
+    }
+
+    y += 20f
+    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    canvas.drawText("ИТОГО:", 150f, y, paint)
+    canvas.drawText("$totalHours ч", 300f, y, paint)
+    canvas.drawText("$totalEarnings ₽", 400f, y, paint)
+
+    pdfDocument.finishPage(page)
+
+    try {
+        val file = File(context.cacheDir, "Workshift_Report_$month.pdf")
+        val out = FileOutputStream(file)
+        pdfDocument.writeTo(out)
+        pdfDocument.close()
+        out.close()
+
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        }
+        context.startActivity(Intent.createChooser(intent, "Открыть PDF"))
+    } catch (_: Exception) {
+        pdfDocument.close()
+    }
+}

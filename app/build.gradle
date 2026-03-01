@@ -11,8 +11,8 @@ android {
         applicationId "com.workshifts.calendar"
         minSdk 26
         targetSdk 34
-        versionCode 8
-        versionName "2.4.0"
+        versionCode 9
+        versionName "2.5.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -86,6 +86,9 @@ dependencies {
     // Persistence
     implementation 'androidx.datastore:datastore-preferences:1.0.0'
     implementation 'com.google.code.gson:gson:2.10.1'
+
+    // Map Picker (OSMDroid)
+    implementation 'org.osmdroid:osmdroid-android:6.1.18'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
