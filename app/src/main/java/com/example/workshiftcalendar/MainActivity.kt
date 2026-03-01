@@ -136,14 +136,15 @@ private enum class BottomTab(val label: String) {
 private enum class ShiftKind(
     val displayName: String,
     val shortName: String,
+    val emoji: String,
     val color: Color,
     val lightColor: Color,
     val hoursPerShift: Int
 ) {
-    MORNING("Утренняя", "У", Color(0xFFBF360C), Color(0xFFFFE0B2), 8),
-    EVENING("Вечерняя", "В", Color(0xFF4A148C), Color(0xFFE1BEE7), 8),
-    NIGHT("Ночная", "Н", Color(0xFF0D47A1), Color(0xFFBBDEFB), 12),
-    OFF("Выходной", "О", Color(0xFF424242), Color(0xFFF5F5F5), 0)
+    MORNING("Утренняя", "У", "☀️", Color(0xFFBF360C), Color(0xFFFFCC80), 8),
+    EVENING("Вечерняя", "В", "🌙", Color(0xFF6A1B9A), Color(0xFFCE93D8), 8),
+    NIGHT("Ночная", "Н", "🌌", Color(0xFF0D47A1), Color(0xFF90CAF9), 12),
+    OFF("Выходной", "О", "🏠", Color(0xFF424242), Color(0xFFE0E0E0), 0)
 }
 
 private data class ShiftDetails(
@@ -571,37 +572,50 @@ private fun DayCard(
     val hasShift = cell.isCurrentMonth && shiftDetails != null
     val isWorking = hasShift && shiftDetails!!.kind != ShiftKind.OFF
 
-    // Card with a colored border to indicate shift, keeping the date always readable
+    // Background: tinted fill when shift is assigned — much more visible than border-only
+    val bgColor = when {
+        !cell.isCurrentMonth -> Color.Transparent
+        isToday -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+        isWorking -> shiftDetails!!.kind.lightColor.copy(alpha = 0.85f)
+        hasShift -> Color(0xFFEEEEEE) // OFF day — subtle gray
+        else -> MaterialTheme.colorScheme.surface
+    }
+
     Box(
         modifier = Modifier
             .aspectRatio(0.8f)
             .padding(2.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (!cell.isCurrentMonth) Color.Transparent
-                else if (isToday) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                else MaterialTheme.colorScheme.surface
-            )
+            .background(bgColor)
             .then(
-                when {
-                    isToday -> Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
-                    isWorking -> Modifier.border(
-                        width = 3.dp,
-                        brush = Brush.verticalGradient(listOf(shiftDetails!!.kind.color, shiftDetails.kind.color.copy(alpha = 0.6f))),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    else -> Modifier
-                }
+                if (isToday)
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                else Modifier
             )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         contentAlignment = Alignment.TopCenter
     ) {
+        // Left accent strip for working shifts (strong color indicator)
+        if (isWorking) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxHeight()
+                    .width(3.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(shiftDetails!!.kind.color, shiftDetails.kind.color.copy(alpha = 0.5f))
+                        )
+                    )
+            )
+        }
+
         Column(
             modifier = Modifier.padding(top = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            // Date number — always clearly visible
+            // Date number — always dark/contrasting regardless of background
             Text(
                 text = cell.date.dayOfMonth.toString(),
                 fontSize = 13.sp,
@@ -609,11 +623,11 @@ private fun DayCard(
                 color = when {
                     !cell.isCurrentMonth -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f)
                     isToday -> MaterialTheme.colorScheme.primary
-                    isWeekend -> MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.onSurface
+                    isWeekend -> Color(0xFFB71C1C)  // dark red — readable on any bg
+                    else -> Color(0xFF1A1A2E)        // near-black — always readable
                 }
             )
-            // Shift badge
+            // Shift badge circle
             if (hasShift) {
                 Box(
                     modifier = Modifier.size(20.dp).clip(CircleShape).background(shiftDetails!!.kind.color),
@@ -624,7 +638,7 @@ private fun DayCard(
             }
             // Note/location dot
             if (shiftDetails?.note?.isNotBlank() == true || shiftDetails?.location?.isNotBlank() == true) {
-                Box(Modifier.size(4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
+                Box(Modifier.size(4.dp).clip(CircleShape).background(shiftDetails!!.kind.color))
             }
         }
     }
@@ -1110,17 +1124,25 @@ private fun DayDetailDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Shift type chip
+                // Shift type chip — dark background + white text = always readable
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
-                        .background(details.kind.lightColor)
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(details.kind.color, details.kind.color.copy(alpha = 0.75f))
+                            )
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(details.kind.color))
-                    Text(details.kind.displayName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        details.kind.emoji + " " + details.kind.displayName,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
                 }
                 // Hours
                 val hoursText = details.customHours.ifBlank { null }
