@@ -90,6 +90,10 @@ dependencies {
     // Map Picker (OSMDroid)
     implementation 'org.osmdroid:osmdroid-android:6.1.18'
 
+    // ML Kit Text Recognition (Receipt Scanner)
+    implementation 'com.google.mlkit:text-recognition:16.0.0'
+    implementation 'com.google.mlkit:text-recognition-russian:16.0.0'
+
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
 }

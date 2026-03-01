@@ -10,6 +10,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -45,7 +48,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.input.pointer.pointerInput
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -133,6 +137,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.DayOfWeek
@@ -443,26 +448,29 @@ private fun CalendarScreen(
     }
     val monthHours = remember(monthFiltered) { monthFiltered.values.sumOf { it.kind.hoursPerShift } }
 
-    var offsetX by remember { mutableStateOf(0f) }
+    val initialPage = Int.MAX_VALUE / 2
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { Int.MAX_VALUE })
+
+    // Update month when pager changes page (swipe)
+    LaunchedEffect(pagerState.currentPage) {
+        val pageOffset = pagerState.currentPage - initialPage
+        val targetMonth = YearMonth.now().plusMonths(pageOffset.toLong())
+        if (targetMonth != month) {
+            onMonthChanged(targetMonth)
+        }
+    }
+
+    // Sync pager when month changes externally (buttons)
+    LaunchedEffect(month) {
+        val monthsDiff = java.time.temporal.ChronoUnit.MONTHS.between(YearMonth.now(), month).toInt()
+        val targetPage = initialPage + monthsDiff
+        if (targetPage != pagerState.currentPage) {
+            pagerState.animateScrollToPage(targetPage)
+        }
+    }
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .pointerInput(month) {
-                detectHorizontalDragGestures(
-                    onDragEnd = { offsetX = 0f }
-                ) { change, dragAmount ->
-                    change.consume()
-                    offsetX += dragAmount
-                    if (offsetX > 200f) {
-                        onMonthChanged(month.minusMonths(1))
-                        offsetX = 0f
-                    } else if (offsetX < -200f) {
-                        onMonthChanged(month.plusMonths(1))
-                        offsetX = 0f
-                    }
-                }
-            }
+        modifier = modifier.fillMaxSize()
     ) {
         // Header
         Box(
@@ -515,20 +523,15 @@ private fun CalendarScreen(
             }
         }
 
-        // Calendar grid
-        AnimatedContent(
-            targetState = month,
-            transitionSpec = {
-                if (targetState.isAfter(initialState)) {
-                    slideInHorizontally { width -> width } + fadeIn() togetherWith slideOutHorizontally { width -> -width } + fadeOut()
-                } else {
-                    slideInHorizontally { width -> -width } + fadeIn() togetherWith slideOutHorizontally { width -> width } + fadeOut()
-                }
-            },
+        // Calendar grid (Pager for native smooth swipes)
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier.weight(1f),
-            label = "month_anim"
-        ) { targetMonth ->
-            val targetDays = remember(targetMonth) { buildMonthGrid(targetMonth) }
+            key = { page -> page }
+        ) { page ->
+            val pageMonth = YearMonth.now().plusMonths((page - initialPage).toLong())
+            val targetDays = remember(pageMonth) { buildMonthGrid(pageMonth) }
+            
             LazyVerticalGrid(
                 columns = GridCells.Fixed(7),
                 modifier = Modifier.fillMaxSize(),
@@ -541,12 +544,12 @@ private fun CalendarScreen(
                         shiftDetails = shiftDetails,
                         onClick = {
                             if (cell.isCurrentMonth) {
-                                if (shiftDetails != null) showDetailForDate = cell.date  // просмотр
-                                else showShiftDialogForDate = cell.date                  // создать смену
+                                if (shiftDetails != null) showDetailForDate = cell.date
+                                else showShiftDialogForDate = cell.date
                             }
                         },
                         onLongClick = {
-                            if (cell.isCurrentMonth) showShiftDialogForDate = cell.date  // редактировать
+                            if (cell.isCurrentMonth) showShiftDialogForDate = cell.date
                         }
                     )
                 }
@@ -1813,11 +1816,71 @@ private fun AddExpenseDialog(
         if (YearMonth.from(it) == month) it.dayOfMonth.toString() else "1"
     }) }
 
+    var isScanning by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        isScanning = true
+        try {
+            val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
+            val bitmap = BitmapFactory.decodeStream(inputStream)
+            val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
+            val recognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
+                com.google.mlkit.vision.text.russian.RussianTextRecognizerOptions.Builder().build()
+            )
+
+            recognizer.process(image)
+                .addOnSuccessListener { visionText ->
+                    // Try to find receipt totals like "ИТОГ", "СУММА", "ОПЛАТЕ"
+                    val lines = visionText.text.split("\n")
+                    var maxNumber = 0
+                    for (line in lines) {
+                        val uppercaseLine = line.uppercase()
+                        if (uppercaseLine.contains("ИТОГ") || uppercaseLine.contains("СУММА") || uppercaseLine.contains("ОПЛАТЕ")) {
+                            // Extract numbers
+                            val numberRegex = Regex("\\d+([.,]\\d+)?")
+                            val match = numberRegex.findAll(line).lastOrNull() // usually the price is at the end
+                            if (match != null) {
+                                val parsed = match.value.replace(",", ".").toFloatOrNull()?.toInt() ?: 0
+                                if (parsed > maxNumber) maxNumber = parsed
+                            }
+                        }
+                    }
+                    if (maxNumber > 0) {
+                        amount = maxNumber.toString()
+                        note = "🧾 Чек"
+                    }
+                }
+                .addOnFailureListener { e ->
+                    // Silent fail
+                }
+                .addOnCompleteListener { isScanning = false }
+        } catch (e: Exception) {
+            isScanning = false
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Добавить расход", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Scan Button
+                Button(
+                    onClick = { launcher.launch("image/*") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                ) {
+                    if (isScanning) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Сканирование...")
+                    } else {
+                        Text("📷 Сканировать чек (ML Kit)")
+                    }
+                }
+                
                 // Category selector
                 Text("Категория:", style = MaterialTheme.typography.labelMedium)
                 LazyColumn(modifier = Modifier.height(160.dp)) {
