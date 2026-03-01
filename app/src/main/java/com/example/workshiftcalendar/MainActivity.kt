@@ -1827,7 +1827,7 @@ private fun AddExpenseDialog(
             val bitmap = BitmapFactory.decodeStream(inputStream)
             val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
             val recognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
-                com.google.mlkit.vision.text.cyrillic.CyrillicTextRecognizerOptions.Builder().build()
+                com.google.mlkit.vision.text.latin.TextRecognizerOptions.DEFAULT_OPTIONS
             )
 
             recognizer.process(image)
