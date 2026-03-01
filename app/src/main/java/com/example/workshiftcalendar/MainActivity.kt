@@ -621,10 +621,10 @@ private fun DayCard(
                 fontSize = 13.sp,
                 fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.SemiBold,
                 color = when {
-                    !cell.isCurrentMonth -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f)
+                    !cell.isCurrentMonth -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
                     isToday -> MaterialTheme.colorScheme.primary
-                    isWeekend -> Color(0xFFB71C1C)  // dark red — readable on any bg
-                    else -> Color(0xFF1A1A2E)        // near-black — always readable
+                    isWeekend -> MaterialTheme.colorScheme.error  // adapts to light/dark theme
+                    else -> MaterialTheme.colorScheme.onSurface   // adapts to light/dark theme
                 }
             )
             // Shift badge circle
