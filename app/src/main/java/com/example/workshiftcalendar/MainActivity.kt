@@ -1652,13 +1652,37 @@ private suspend fun fetchLatestRelease(): GitHubRelease? = withContext(Dispatche
         val url = URL("https://api.github.com/repos/Lucky0wl/workshift-calendar/releases/latest")
         val conn = url.openConnection() as HttpURLConnection
         conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
-        conn.connectTimeout = 8000
-        conn.readTimeout = 8000
+        conn.setRequestProperty("User-Agent", "Workshift-Calendar-Updater/${BuildConfig.VERSION_NAME}")
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
         if (conn.responseCode == 200) {
             val json = conn.inputStream.bufferedReader().readText()
             Gson().fromJson(json, GitHubRelease::class.java)
         } else null
     } catch (_: Exception) { null }
+}
+
+/** Follow GitHub redirect chain to get direct CDN download URL (avoids DownloadManager redirect issues) */
+private suspend fun resolveDirectUrl(originalUrl: String): String = withContext(Dispatchers.IO) {
+    var current = originalUrl
+    repeat(5) { // max 5 hops
+        try {
+            val conn = URL(current).openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = false
+            conn.setRequestProperty("User-Agent", "Workshift-Calendar-Updater/${BuildConfig.VERSION_NAME}")
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            val code = conn.responseCode
+            conn.disconnect()
+            if (code in 300..399) {
+                val loc = conn.getHeaderField("Location") ?: return@withContext current
+                current = if (loc.startsWith("http")) loc else "https://github.com$loc"
+            } else {
+                return@withContext current
+            }
+        } catch (_: Exception) { return@withContext current }
+    }
+    current
 }
 
 private fun parseVersionCode(body: String): Int? =
@@ -1678,29 +1702,42 @@ fun UpdateCenterCard() {
     var latestRelease by remember { mutableStateOf<GitHubRelease?>(null) }
     var downloadId by remember { mutableStateOf<Long?>(null) }
     var downloadedApkFile by remember { mutableStateOf<File?>(null) }
+    var downloadProgress by remember { mutableStateOf(0) }
 
     // Poll download completion
     LaunchedEffect(downloadId) {
         val id = downloadId ?: return@LaunchedEffect
+        val dm = context.getSystemService(android.app.DownloadManager::class.java)
         withContext(Dispatchers.IO) {
-            val dm = context.getSystemService(android.app.DownloadManager::class.java)
             while (true) {
                 val cursor = dm.query(android.app.DownloadManager.Query().setFilterById(id))
                 if (cursor.moveToFirst()) {
                     val status = cursor.getInt(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS))
-                    if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) {
-                        cursor.close()
-                        break
-                    } else if (status == android.app.DownloadManager.STATUS_FAILED) {
-                        cursor.close()
-                        updateState = UpdateState.ERROR
-                        return@withContext
+                    val downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                    val total = cursor.getLong(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                    cursor.close()
+                    when (status) {
+                        android.app.DownloadManager.STATUS_SUCCESSFUL -> {
+                            withContext(Dispatchers.Main) { updateState = UpdateState.DOWNLOADED }
+                            return@withContext
+                        }
+                        android.app.DownloadManager.STATUS_FAILED -> {
+                            withContext(Dispatchers.Main) { updateState = UpdateState.ERROR }
+                            return@withContext
+                        }
+                        android.app.DownloadManager.STATUS_RUNNING -> {
+                            if (total > 0) {
+                                val pct = (downloaded * 100 / total).toInt()
+                                withContext(Dispatchers.Main) { downloadProgress = pct }
+                            }
+                        }
+                        else -> { /* PENDING or PAUSED — keep waiting */ }
                     }
+                } else {
+                    cursor.close()
                 }
-                cursor.close()
-                kotlinx.coroutines.delay(1000)
+                kotlinx.coroutines.delay(800)
             }
-            updateState = UpdateState.DOWNLOADED
         }
     }
 
@@ -1725,7 +1762,7 @@ fun UpdateCenterCard() {
                     val vn = latestRelease?.let { parseVersionName(it.body) } ?: latestRelease?.name ?: ""
                     "🆕 Доступна версия $vn" to MaterialTheme.colorScheme.primary
                 }
-                UpdateState.DOWNLOADING -> "⬇️ Загружаем APK…" to MaterialTheme.colorScheme.secondary
+                UpdateState.DOWNLOADING -> "⬇️ Загружаем APK… $downloadProgress%" to MaterialTheme.colorScheme.secondary
                 UpdateState.DOWNLOADED -> "✅ Загружено! Готово к установке" to Color(0xFF2E7D32)
                 UpdateState.ERROR -> "❌ Ошибка. Проверьте соединение" to MaterialTheme.colorScheme.error
             }
@@ -1764,17 +1801,27 @@ fun UpdateCenterCard() {
                 if (updateState == UpdateState.UPDATE_AVAILABLE) {
                     Button(
                         onClick = {
-                            val apkUrl = latestRelease?.assets?.firstOrNull()?.browser_download_url
+                            val rawUrl = latestRelease?.assets?.firstOrNull()?.browser_download_url
                                 ?: return@Button
+                            downloadProgress = 0
                             updateState = UpdateState.DOWNLOADING
-                            val dm = context.getSystemService(android.app.DownloadManager::class.java)
-                            val request = android.app.DownloadManager.Request(Uri.parse(apkUrl))
-                                .setTitle("Workshift — обновление")
-                                .setDescription("Загрузка новой версии...")
-                                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                .setDestinationInExternalFilesDir(context, "updates", "app-update.apk")
-                            downloadId = dm.enqueue(request)
-                            downloadedApkFile = File(context.getExternalFilesDir("updates"), "app-update.apk")
+                            // Delete old APK if exists
+                            context.getExternalFilesDir("updates")?.also { dir ->
+                                File(dir, "app-update.apk").delete()
+                            }
+                            scope.launch {
+                                // Resolve GitHub redirect to direct CDN URL
+                                val directUrl = resolveDirectUrl(rawUrl)
+                                val dm = context.getSystemService(android.app.DownloadManager::class.java)
+                                val request = android.app.DownloadManager.Request(Uri.parse(directUrl))
+                                    .setTitle("Workshift — обновление")
+                                    .setDescription("Загрузка новой версии...")
+                                    .addRequestHeader("User-Agent", "Workshift-Calendar-Updater/${BuildConfig.VERSION_NAME}")
+                                    .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                    .setDestinationInExternalFilesDir(context, "updates", "app-update.apk")
+                                downloadId = dm.enqueue(request)
+                                downloadedApkFile = File(context.getExternalFilesDir("updates"), "app-update.apk")
+                            }
                         },
                         modifier = Modifier.weight(1f)
                     ) {
