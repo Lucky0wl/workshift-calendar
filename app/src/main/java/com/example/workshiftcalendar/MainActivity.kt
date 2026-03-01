@@ -1113,6 +1113,41 @@ private fun DayDetailDialog(
     val fmt = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))
     val coordsRegex = Regex("Lat:\\s*(-?\\d+\\.\\d+),\\s*Lng:\\s*(-?\\d+\\.\\d+)")
     val coordsMatch = coordsRegex.find(details.location)
+    val scope = rememberCoroutineScope()
+
+    // ── Weather state ──────────────────────────────────────────────────
+    var weatherInfo by remember { mutableStateOf<WeatherInfo?>(null) }
+    var weatherLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(date, details.location) {
+        if (coordsMatch != null && details.kind != ShiftKind.OFF) {
+            val today = LocalDate.now()
+            val daysDiff = java.time.temporal.ChronoUnit.DAYS.between(today, date)
+            if (daysDiff in -7..16) {   // show for recent past + 16-day forecast
+                weatherLoading = true
+                weatherInfo = fetchWeatherForDate(
+                    lat = coordsMatch.groupValues[1].toDouble(),
+                    lon = coordsMatch.groupValues[2].toDouble(),
+                    date = date
+                )
+                weatherLoading = false
+            }
+        }
+    }
+
+    // ── Live earnings counter (only for today's shift) ─────────────────
+    var elapsedSeconds by remember { mutableStateOf(0L) }
+    val isToday = date == LocalDate.now()
+
+    LaunchedEffect(isToday) {
+        if (isToday && details.kind != ShiftKind.OFF) {
+            while (true) {
+                val now = java.time.LocalTime.now()
+                elapsedSeconds = now.toSecondOfDay().toLong()
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1124,66 +1159,118 @@ private fun DayDetailDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Shift type chip — dark background + white text = always readable
+                // Shift type chip
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(details.kind.color, details.kind.color.copy(alpha = 0.75f))
-                            )
-                        )
+                        .background(Brush.horizontalGradient(listOf(details.kind.color, details.kind.color.copy(alpha = 0.75f))))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        details.kind.emoji + " " + details.kind.displayName,
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
-                    )
+                    Text(details.kind.emoji + " " + details.kind.displayName,
+                        fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = Color.White)
                 }
+
+                // ── Live counter for today ──────────────────────────────────────
+                if (isToday && details.kind != ShiftKind.OFF && details.customSalary.isNotBlank()) {
+                    val ratePh = details.customSalary.toDoubleOrNull()
+                    val hours = details.customHours.toDoubleOrNull() ?: details.kind.hoursPerShift.toDouble()
+                    if (ratePh != null && hours > 0) {
+                        val ratePerSec = ratePh / (hours * 3600)
+                        val shiftStartSec = 0L  // approximate — full shift rate
+                        val earned = (ratePerSec * elapsedSeconds).coerceAtMost(ratePh)
+                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.padding(10.dp).fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("⏳ Сегодня заработано", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("%.0f ₽".format(earned),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+
                 // Hours
                 val hoursText = details.customHours.ifBlank { null }
                     ?.let { "⏱ $it ч (факт)" }
                     ?: if (details.kind != ShiftKind.OFF) "⏱ ${details.kind.hoursPerShift} ч (план)" else null
                 hoursText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
                 // Salary
                 if (details.customSalary.isNotBlank()) {
-                    Text("💰 ${details.customSalary} ₽", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("💰 ${details.customSalary} ₽", style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
-                // Location
+
+                // Location + open in Maps
                 if (details.location.isNotBlank()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
+                    Row(modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                        verticalAlignment = Alignment.CenterVertically) {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
                             Icon(Icons.Outlined.Place, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                             Text(details.location, style = MaterialTheme.typography.bodySmall)
                         }
                         if (coordsMatch != null) {
-                            TextButton(
-                                onClick = {
-                                    val lat = coordsMatch.groupValues[1]
-                                    val lng = coordsMatch.groupValues[2]
-                                    val geoUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng")
-                                    try { context.startActivity(Intent(Intent.ACTION_VIEW, geoUri)) } catch (_: Exception) {}
-                                }
-                            ) { Text("Карта", style = MaterialTheme.typography.labelSmall) }
+                            TextButton(onClick = {
+                                val lat = coordsMatch.groupValues[1]
+                                val lng = coordsMatch.groupValues[2]
+                                val geoUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng")
+                                try { context.startActivity(Intent(Intent.ACTION_VIEW, geoUri)) } catch (_: Exception) {}
+                            }) { Text("Карта", style = MaterialTheme.typography.labelSmall) }
                         }
                     }
                 }
+
+                // ── Weather forecast ────────────────────────────────────────────
+                if (coordsMatch != null && details.kind != ShiftKind.OFF) {
+                    when {
+                        weatherLoading -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                            Text("Загружаем погоду…", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        weatherInfo != null -> ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Погода на смену", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(weatherInfo!!.emoji + " " + weatherInfo!!.description,
+                                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("${weatherInfo!!.tempMin}°…${weatherInfo!!.tempMax}°C",
+                                            style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                        if (weatherInfo!!.precipProb > 10) {
+                                            Text("💧 Осадки ${weatherInfo!!.precipProb}%",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFF1565C0))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Note
                 if (details.note.isNotBlank()) {
                     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "📝 ${details.note}",
-                            modifier = Modifier.padding(10.dp),
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Text(text = "📝 ${details.note}", modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -1202,6 +1289,7 @@ private fun DayDetailDialog(
         }
     )
 }
+
 
 @Composable
 private fun TemplatePicker(
@@ -1857,3 +1945,65 @@ fun UpdateCenterCard() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════
+// Weather (Open-Meteo — no API key)
+// ═══════════════════════════════════════════════
+
+data class WeatherInfo(
+    val emoji: String,
+    val description: String,
+    val tempMin: Int,
+    val tempMax: Int,
+    val precipProb: Int
+)
+
+private fun wmoToInfo(code: Int): Pair<String, String> = when (code) {
+    0 -> "☀️" to "Ясно"
+    1 -> "🌤️" to "Преимущественно ясно"
+    2 -> "⛅" to "Переменная облачность"
+    3 -> "☁️" to "Пасмурно"
+    45, 48 -> "🌫️" to "Туман"
+    51, 53, 55 -> "🌦️" to "Морось"
+    61, 63, 65 -> "🌧️" to "Дождь"
+    71, 73, 75 -> "🌨️" to "Снег"
+    77 -> "❄️" to "Снежная крупа"
+    80, 81, 82 -> "🌧️" to "Ливень"
+    85, 86 -> "🌨️" to "Снегопад"
+    95 -> "⛈️" to "Гроза"
+    96, 99 -> "⛈️" to "Гроза с градом"
+    else -> "🌡️" to "Переменно"
+}
+
+suspend fun fetchWeatherForDate(lat: Double, lon: Double, date: LocalDate): WeatherInfo? =
+    withContext(Dispatchers.IO) {
+        try {
+            val dateStr = date.toString() // ISO: 2026-03-05
+            val urlStr = "https://api.open-meteo.com/v1/forecast" +
+                    "?latitude=$lat&longitude=$lon" +
+                    "&hourly=temperature_2m,precipitation_probability,weathercode" +
+                    "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode" +
+                    "&timezone=auto&start_date=$dateStr&end_date=$dateStr"
+
+            val conn = URL(urlStr).openConnection() as HttpURLConnection
+            conn.setRequestProperty("User-Agent", "Workshift-Calendar-Weather/1.0")
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+
+            if (conn.responseCode != 200) return@withContext null
+
+            val json = conn.inputStream.bufferedReader().readText()
+            val gson = Gson()
+            val root = gson.fromJson(json, Map::class.java)
+
+            @Suppress("UNCHECKED_CAST")
+            val daily = root["daily"] as? Map<String, List<*>> ?: return@withContext null
+            val tempMax = (daily["temperature_2m_max"]?.firstOrNull() as? Double)?.toInt() ?: return@withContext null
+            val tempMin = (daily["temperature_2m_min"]?.firstOrNull() as? Double)?.toInt() ?: return@withContext null
+            val precipProb = (daily["precipitation_probability_max"]?.firstOrNull() as? Double)?.toInt() ?: 0
+            val wmoCode = (daily["weathercode"]?.firstOrNull() as? Double)?.toInt() ?: 0
+
+            val (emoji, desc) = wmoToInfo(wmoCode)
+            WeatherInfo(emoji, desc, tempMin, tempMax, precipProb)
+        } catch (_: Exception) { null }
+    }
