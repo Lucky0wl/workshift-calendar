@@ -70,10 +70,12 @@ jobs:
           git push origin :refs/tags/latest 2>/dev/null || true
 
           # Create new "latest" release with version info in body
+          echo "version_code=${{ steps.version.outputs.code }}" > /tmp/release_notes.txt
+          echo "version_name=${{ steps.version.outputs.name }}" >> /tmp/release_notes.txt
+          echo "commit=${{ steps.version.outputs.commit }}" >> /tmp/release_notes.txt
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /tmp/release_notes.txt
+
           gh release create latest \
             --title "Version ${{ steps.version.outputs.name }} (build ${{ steps.version.outputs.code }})" \
-            --notes "version_code=${{ steps.version.outputs.code }}
-version_name=${{ steps.version.outputs.name }}
-commit=${{ steps.version.outputs.commit }}
-built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --notes-file /tmp/release_notes.txt \
             app/build/outputs/apk/debug/app-debug.apk
