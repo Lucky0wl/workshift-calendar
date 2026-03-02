@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -199,7 +200,7 @@ private enum class BottomTab(val label: String) {
     CALENDAR("Календарь"), STATS("Статистика"), BUDGET("Бюджет"), TEMPLATES("Шаблоны"), SETTINGS("Настройки")
 }
 
-private enum class ShiftKind(
+enum class ShiftKind(
     val displayName: String,
     val shortName: String,
     val emoji: String,
@@ -1240,8 +1241,6 @@ private fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
-                    }
-                }
                 }
             }
         }
