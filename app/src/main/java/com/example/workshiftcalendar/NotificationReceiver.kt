@@ -19,7 +19,7 @@ class NotificationReceiver : BroadcastReceiver() {
         // Handle boot/update events to reschedule the daily alarm
         if (intent.action == Intent.ACTION_BOOT_COMPLETED || 
             intent.action == Intent.ACTION_MY_PACKAGE_REPLACED ||
-            intent.action == Intent.ACTION_TIME_SET ||
+            intent.action == Intent.ACTION_TIME_CHANGED ||
             intent.action == Intent.ACTION_TIMEZONE_CHANGED) {
             
             // Re-schedule alarm if notifications are enabled
@@ -44,8 +44,8 @@ class NotificationReceiver : BroadcastReceiver() {
             val tomorrow = LocalDate.now().plusDays(1)
             val tomorrowShift = repository.getShift(tomorrow)
             
-            if (tomorrowShift != null && tomorrowShift.type != ShiftType.NONE) {
-                showNotification(context, tomorrowShift.type.displayName, tomorrowShift.type.emoji)
+            if (tomorrowShift != null && tomorrowShift.kind != ShiftKind.OFF) {
+                showNotification(context, tomorrowShift.kind.displayName, tomorrowShift.kind.emoji)
             }
         }
     }
@@ -79,7 +79,7 @@ class NotificationReceiver : BroadcastReceiver() {
 
         // Build the notification
         val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // Use a proper small silhouette icon in a real app
+            .setSmallIcon(android.R.drawable.ic_menu_today) // Use a proper small silhouette icon in a real app
             .setContentTitle("Рабочая смена завтра $emoji")
             .setContentText("Напоминание: Завтра у вас смена «$shiftName»")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

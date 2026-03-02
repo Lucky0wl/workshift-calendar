@@ -213,7 +213,7 @@ private enum class ShiftKind(
     OFF("Выходной", "О", "🏠", Color(0xFF424242), Color(0xFFE0E0E0), 0)
 }
 
-private data class ShiftDetails(
+data class ShiftDetails(
     val kind: ShiftKind,
     val note: String = "",
     val location: String = "",
@@ -1394,6 +1394,12 @@ private fun ShiftPickerDialog(
                         modifier = Modifier.fillMaxWidth(), singleLine = true
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        val startInteractionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        LaunchedEffect(startInteractionSource) {
+                            startInteractionSource.interactions.collect {
+                                if (it is androidx.compose.foundation.interaction.PressInteraction.Release) pickingStartTime = true
+                            }
+                        }
                         OutlinedTextField(
                             value = currentStartTime,
                             onValueChange = { },
@@ -1401,16 +1407,15 @@ private fun ShiftPickerDialog(
                             label = { Text("Начало") },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            interactionSource = remember { MutableInteractionSource() }.also { interactionSource ->
-                                LaunchedEffect(interactionSource) {
-                                    interactionSource.interactions.collect {
-                                        if (it is androidx.compose.foundation.interaction.PressInteraction.Release) {
-                                            pickingStartTime = true
-                                        }
-                                    }
-                                }
-                            }
+                            interactionSource = startInteractionSource
                         )
+
+                        val endInteractionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        LaunchedEffect(endInteractionSource) {
+                            endInteractionSource.interactions.collect {
+                                if (it is androidx.compose.foundation.interaction.PressInteraction.Release) pickingEndTime = true
+                            }
+                        }
                         OutlinedTextField(
                             value = currentEndTime,
                             onValueChange = { },
@@ -1418,15 +1423,7 @@ private fun ShiftPickerDialog(
                             label = { Text("Окончание") },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            interactionSource = remember { MutableInteractionSource() }.also { interactionSource ->
-                                LaunchedEffect(interactionSource) {
-                                    interactionSource.interactions.collect {
-                                        if (it is androidx.compose.foundation.interaction.PressInteraction.Release) {
-                                            pickingEndTime = true
-                                        }
-                                    }
-                                }
-                            }
+                            interactionSource = endInteractionSource
                         )
                     }
                     OutlinedTextField(
@@ -2613,5 +2610,26 @@ private fun exportToPdf(context: Context, month: YearMonth, filtered: Map<LocalD
         context.startActivity(Intent.createChooser(intent, "Открыть PDF"))
     } catch (_: Exception) {
         pdfDocument.close()
+    }
+}
+
+@Composable
+fun TimePickerDialog(
+    initialHour: Int,
+    initialMinute: Int,
+    onTimeSelected: (Int, Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        val dialog = android.app.TimePickerDialog(
+            context,
+            { _, h, m -> onTimeSelected(h, m) },
+            initialHour,
+            initialMinute,
+            true
+        )
+        dialog.setOnDismissListener { onDismiss() }
+        dialog.show()
     }
 }
