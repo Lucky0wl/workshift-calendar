@@ -468,6 +468,9 @@ fun WorkshiftAppRoot() {
         }
     }
 }
+        }
+    }
+}
 
 // ═══════════════════════════════════════════════
 // Alarm Manager
@@ -1241,6 +1244,7 @@ private fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
+                    }
                 }
             }
         }
