@@ -155,6 +155,42 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 private val APP_DATA_KEY = stringPreferencesKey("app_data_v2")
 private val appGson = Gson()
 
+class WorkshiftRepository(private val context: Context) {
+    suspend fun isNotificationsEnabled(): Boolean {
+        return try {
+            val prefs = context.dataStore.data.first()
+            val dto = appGson.fromJson(prefs[APP_DATA_KEY], AppDataDto::class.java)
+            dto?.notificationsEnabled ?: false
+        } catch (e: Exception) { false }
+    }
+
+    suspend fun getNotificationTime(): String {
+        return try {
+            val prefs = context.dataStore.data.first()
+            val dto = appGson.fromJson(prefs[APP_DATA_KEY], AppDataDto::class.java)
+            dto?.notificationTime ?: "20:00"
+        } catch (e: Exception) { "20:00" }
+    }
+
+    suspend fun getShift(date: LocalDate): ShiftDetails? {
+        return try {
+            val prefs = context.dataStore.data.first()
+            val dto = appGson.fromJson(prefs[APP_DATA_KEY], AppDataDto::class.java)
+            dto?.assignments?.get(date.toString())?.let { shiftDto ->
+                ShiftDetails(
+                    kind = ShiftKind.valueOf(shiftDto.kind),
+                    note = shiftDto.note,
+                    location = shiftDto.location,
+                    customSalary = shiftDto.customSalary,
+                    customHours = shiftDto.customHours,
+                    startTime = shiftDto.startTime,
+                    endTime = shiftDto.endTime
+                )
+            }
+        } catch (e: Exception) { null }
+    }
+}
+
 // ═══════════════════════════════════════════════
 // Domain Model
 // ═══════════════════════════════════════════════
@@ -182,7 +218,9 @@ private data class ShiftDetails(
     val note: String = "",
     val location: String = "",
     val customSalary: String = "",
-    val customHours: String = ""
+    val customHours: String = "",
+    val startTime: String = "",
+    val endTime: String = ""
 )
 
 private data class ShiftTemplate(
@@ -218,7 +256,7 @@ private data class ExpenseEntry(
 // Serialisation DTOs
 // ═══════════════════════════════════════════════
 
-private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "", val customHours: String = "")
+private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "", val customHours: String = "", val startTime: String = "", val endTime: String = "")
 private data class ShiftTemplateDto(val id: String = "", val name: String = "", val description: String = "", val pattern: List<String> = emptyList())
 private data class ExpenseEntryDto(val id: String = "", val date: String = "", val amount: Int = 0, val category: String = "", val note: String = "")
 private data class AppDataDto(
@@ -226,15 +264,17 @@ private data class AppDataDto(
     val customTemplates: List<ShiftTemplateDto> = emptyList(),
     val shiftRates: Map<String, String> = emptyMap(),
     val appStyle: String = AppStyle.MODERN_BLUE.name,
-    val expenses: List<ExpenseEntryDto> = emptyList()
+    val expenses: List<ExpenseEntryDto> = emptyList(),
+    val notificationsEnabled: Boolean = false,
+    val notificationTime: String = "20:00"
 )
 
 private fun Map<LocalDate, ShiftDetails>.toDto() = entries.associate { (d, v) ->
-    d.toString() to ShiftDetailsDto(v.kind.name, v.note, v.location, v.customSalary, v.customHours)
+    d.toString() to ShiftDetailsDto(v.kind.name, v.note, v.location, v.customSalary, v.customHours, v.startTime, v.endTime)
 }
 
 private fun Map<String, ShiftDetailsDto>.toDomain() = entries.mapNotNull { (ds, dto) ->
-    try { LocalDate.parse(ds) to ShiftDetails(ShiftKind.valueOf(dto.kind), dto.note, dto.location, dto.customSalary, dto.customHours) }
+    try { LocalDate.parse(ds) to ShiftDetails(ShiftKind.valueOf(dto.kind), dto.note, dto.location, dto.customSalary, dto.customHours, dto.startTime, dto.endTime) }
     catch (e: Exception) { null }
 }.toMap()
 
@@ -302,6 +342,8 @@ fun WorkshiftAppRoot() {
         mutableStateOf(ShiftKind.values().filter { it != ShiftKind.OFF }.associateWith { "" })
     }
     var expenses by remember { mutableStateOf(listOf<ExpenseEntry>()) }
+    var notificationsEnabled by remember { mutableStateOf(false) }
+    var notificationTime by remember { mutableStateOf("20:00") }
     var isLoaded by remember { mutableStateOf(false) }
 
     // Load from DataStore once
@@ -316,6 +358,8 @@ fun WorkshiftAppRoot() {
                 shiftRates = ShiftKind.values().filter { it != ShiftKind.OFF }
                     .associateWith { dto.shiftRates[it.name] ?: "" }
                 expenses = dto.expenses.mapNotNull { it.toDomain() }
+                notificationsEnabled = dto.notificationsEnabled
+                notificationTime = dto.notificationTime
                 try { currentStyle = AppStyle.valueOf(dto.appStyle) } catch (_: Exception) {}
             }
         } catch (_: Exception) {}
@@ -323,14 +367,16 @@ fun WorkshiftAppRoot() {
     }
 
     // Auto-save on state change (only after initial load)
-    LaunchedEffect(assignments, shiftRates, currentStyle, expenses, isLoaded) {
+    LaunchedEffect(assignments, shiftRates, currentStyle, expenses, notificationsEnabled, notificationTime, isLoaded) {
         if (!isLoaded) return@LaunchedEffect
         val dto = AppDataDto(
             assignments = assignments.toDto(),
             customTemplates = templates.filter { !it.isBuiltIn }.map { it.toDto() },
             shiftRates = shiftRates.toStringMap(),
             appStyle = currentStyle.name,
-            expenses = expenses.map { it.toDto() }
+            expenses = expenses.map { it.toDto() },
+            notificationsEnabled = notificationsEnabled,
+            notificationTime = notificationTime
         )
         context.dataStore.edit { it[APP_DATA_KEY] = appGson.toJson(dto) }
     }
@@ -411,11 +457,79 @@ fun WorkshiftAppRoot() {
                     currentStyle = currentStyle,
                     onStyleChange = { currentStyle = it },
                     shiftRates = shiftRates,
-                    onRatesChange = { shiftRates = it }
+                    onRatesChange = { shiftRates = it },
+                    notificationsEnabled = notificationsEnabled,
+                    onNotificationsToggled = { notificationsEnabled = it },
+                    notificationTime = notificationTime,
+                    onNotificationTimeChanged = { notificationTime = it }
                 )
             }
         }
     }
+}
+
+// ═══════════════════════════════════════════════
+// Alarm Manager
+// ═══════════════════════════════════════════════
+
+fun scheduleDailyAlarm(context: Context, hour: Int, minute: Int) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+    val intent = Intent(context, NotificationReceiver::class.java).apply {
+        action = "com.workshift.calendar.ALARM_TRIGGER"
+    }
+    val pendingIntent = android.app.PendingIntent.getBroadcast(
+        context,
+        1001,
+        intent,
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+    )
+
+    val calendar = java.util.Calendar.getInstance().apply {
+        timeInMillis = System.currentTimeMillis()
+        set(java.util.Calendar.HOUR_OF_DAY, hour)
+        set(java.util.Calendar.MINUTE, minute)
+        set(java.util.Calendar.SECOND, 0)
+    }
+
+    if (calendar.timeInMillis <= System.currentTimeMillis()) {
+        calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (alarmManager.canScheduleExactAlarms()) {
+            alarmManager.setExactAndAllowWhileIdle(
+                android.app.AlarmManager.RTC_WAKEUP,
+                calendar.timeInMillis,
+                pendingIntent
+            )
+        } else {
+            alarmManager.setAndAllowWhileIdle(
+                android.app.AlarmManager.RTC_WAKEUP,
+                calendar.timeInMillis,
+                pendingIntent
+            )
+        }
+    } else {
+        alarmManager.setExactAndAllowWhileIdle(
+            android.app.AlarmManager.RTC_WAKEUP,
+            calendar.timeInMillis,
+            pendingIntent
+        )
+    }
+}
+
+fun cancelDailyAlarm(context: Context) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+    val intent = Intent(context, NotificationReceiver::class.java).apply {
+        action = "com.workshift.calendar.ALARM_TRIGGER"
+    }
+    val pendingIntent = android.app.PendingIntent.getBroadcast(
+        context,
+        1001,
+        intent,
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+    )
+    alarmManager.cancel(pendingIntent)
 }
 
 // ═══════════════════════════════════════════════
@@ -697,6 +811,14 @@ private fun DayCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(text = shiftDetails.kind.shortName, fontSize = 8.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+                if (shiftDetails.startTime.isNotBlank()) {
+                    Text(
+                        text = shiftDetails.startTime,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
             // Note/location dot
@@ -1039,8 +1161,35 @@ private fun SettingsScreen(
     currentStyle: AppStyle,
     onStyleChange: (AppStyle) -> Unit,
     shiftRates: Map<ShiftKind, String>,
-    onRatesChange: (Map<ShiftKind, String>) -> Unit
+    onRatesChange: (Map<ShiftKind, String>) -> Unit,
+    notificationsEnabled: Boolean,
+    onNotificationsToggled: (Boolean) -> Unit,
+    notificationTime: String,
+    onNotificationTimeChanged: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showTimePicker by remember { mutableStateOf(false) }
+
+    // Android 13+ Notification Permission Launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            onNotificationsToggled(true)
+            scheduleDailyAlarm(context, notificationTime.split(":")[0].toInt(), notificationTime.split(":")[1].toInt())
+        }
+    }
+
+    // Exact Alarm permission launcher for Android 12+
+    val exactAlarmLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val am = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && am.canScheduleExactAlarms()) {
+            scheduleDailyAlarm(context, notificationTime.split(":")[0].toInt(), notificationTime.split(":")[1].toInt())
+        }
+    }
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1093,7 +1242,73 @@ private fun SettingsScreen(
                         )
                     }
                 }
+                }
             }
+        }
+
+        // Reminders & Notifications
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Напоминания (Уведомления)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Напоминать о завтрашней смене")
+                        if (notificationsEnabled) {
+                            Text("Время: $notificationTime (нажмите для смены)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { showTimePicker = true }.padding(vertical = 4.dp))
+                        }
+                    }
+                    Switch(
+                        checked = notificationsEnabled,
+                        onCheckedChange = { enable ->
+                            if (enable) {
+                                // Request permissions before enabling
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    val status = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+                                    if (status != PackageManager.PERMISSION_GRANTED) {
+                                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        return@Switch
+                                    }
+                                }
+
+                                val am = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
+                                    exactAlarmLauncher.launch(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
+                                }
+
+                                onNotificationsToggled(true)
+                                val parts = notificationTime.split(":")
+                                scheduleDailyAlarm(context, parts[0].toInt(), parts[1].toInt())
+                            } else {
+                                onNotificationsToggled(false)
+                                cancelDailyAlarm(context)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        if (showTimePicker) {
+            val parts = notificationTime.split(":")
+            val initialHour = parts.getOrNull(0)?.toIntOrNull() ?: 20
+            val initialMinute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+
+            TimePickerDialog(
+                initialHour = initialHour,
+                initialMinute = initialMinute,
+                onTimeSelected = { h, m ->
+                    val newTime = "%02d:%02d".format(h, m)
+                    onNotificationTimeChanged(newTime)
+                    showTimePicker = false
+                    if (notificationsEnabled) scheduleDailyAlarm(context, h, m)
+                },
+                onDismiss = { showTimePicker = false }
+            )
         }
 
         // Update Center
@@ -1119,8 +1334,12 @@ private fun ShiftPickerDialog(
     var currentLocation by remember { mutableStateOf(currentDetails?.location ?: "") }
     var currentCustomSalary by remember { mutableStateOf(currentDetails?.customSalary ?: "") }
     var currentCustomHours by remember { mutableStateOf(currentDetails?.customHours ?: "") }
+    var currentStartTime by remember { mutableStateOf(currentDetails?.startTime ?: "") }
+    var currentEndTime by remember { mutableStateOf(currentDetails?.endTime ?: "") }
     var isSaving by remember { mutableStateOf(false) }
     var showMapPicker by remember { mutableStateOf(false) }
+    var pickingStartTime by remember { mutableStateOf(false) }
+    var pickingEndTime by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val context = LocalContext.current
@@ -1174,6 +1393,42 @@ private fun ShiftPickerDialog(
                         label = { Text(if (defaultRate.isNotBlank()) "Оплата (ставка: $defaultRate ₽)" else "Оплата за этот день (₽)") },
                         modifier = Modifier.fillMaxWidth(), singleLine = true
                     )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = currentStartTime,
+                            onValueChange = { },
+                            readOnly = true,
+                            label = { Text("Начало") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            interactionSource = remember { MutableInteractionSource() }.also { interactionSource ->
+                                LaunchedEffect(interactionSource) {
+                                    interactionSource.interactions.collect {
+                                        if (it is androidx.compose.foundation.interaction.PressInteraction.Release) {
+                                            pickingStartTime = true
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                        OutlinedTextField(
+                            value = currentEndTime,
+                            onValueChange = { },
+                            readOnly = true,
+                            label = { Text("Окончание") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            interactionSource = remember { MutableInteractionSource() }.also { interactionSource ->
+                                LaunchedEffect(interactionSource) {
+                                    interactionSource.interactions.collect {
+                                        if (it is androidx.compose.foundation.interaction.PressInteraction.Release) {
+                                            pickingEndTime = true
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    }
                     OutlinedTextField(
                         value = currentCustomHours,
                         onValueChange = { currentCustomHours = it },
@@ -1204,7 +1459,15 @@ private fun ShiftPickerDialog(
                     )
                 }
                 TextButton(
-                    onClick = { selectedKind = null; currentNote = ""; currentLocation = ""; currentCustomSalary = ""; currentCustomHours = "" },
+                    onClick = {
+                        selectedKind = null
+                        currentNote = ""
+                        currentLocation = ""
+                        currentCustomSalary = ""
+                        currentCustomHours = ""
+                        currentStartTime = ""
+                        currentEndTime = ""
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Очистить день") }
             }
@@ -1236,12 +1499,12 @@ private fun ShiftPickerDialog(
                                 } else loc
 
                                 withContext(Dispatchers.Main) {
-                                    onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, finalLoc, currentCustomSalary, currentCustomHours))
+                                    onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, finalLoc, currentCustomSalary, currentCustomHours, currentStartTime, currentEndTime))
                                     isSaving = false
                                 }
                             }
                         } else {
-                            onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, loc, currentCustomSalary, currentCustomHours))
+                            onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, loc, currentCustomSalary, currentCustomHours, currentStartTime, currentEndTime))
                         }
                     }
                 ) { Text(if (isSaving) "Поиск…" else "Сохранить") }
@@ -1266,6 +1529,32 @@ private fun ShiftPickerDialog(
                 onCancel = { showMapPicker = false }
             )
         }
+    }
+
+    if (pickingStartTime) {
+        val parts = currentStartTime.split(":")
+        TimePickerDialog(
+            initialHour = parts.getOrNull(0)?.toIntOrNull() ?: 8,
+            initialMinute = parts.getOrNull(1)?.toIntOrNull() ?: 0,
+            onTimeSelected = { h, m ->
+                currentStartTime = "%02d:%02d".format(h, m)
+                pickingStartTime = false
+            },
+            onDismiss = { pickingStartTime = false }
+        )
+    }
+
+    if (pickingEndTime) {
+        val parts = currentEndTime.split(":")
+        TimePickerDialog(
+            initialHour = parts.getOrNull(0)?.toIntOrNull() ?: 17,
+            initialMinute = parts.getOrNull(1)?.toIntOrNull() ?: 0,
+            onTimeSelected = { h, m ->
+                currentEndTime = "%02d:%02d".format(h, m)
+                pickingEndTime = false
+            },
+            onDismiss = { pickingEndTime = false }
+        )
     }
 }
 
@@ -1365,7 +1654,10 @@ private fun DayDetailDialog(
                     }
                 }
 
-                // Hours
+                // Hours & Times
+                val timeRangeText = if (details.startTime.isNotBlank() && details.endTime.isNotBlank()) "⏰ ${details.startTime} - ${details.endTime}" else null
+                timeRangeText?.let { Text(it, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) }
+
                 val hoursText = details.customHours.ifBlank { null }
                     ?.let { "⏱ $it ч (факт)" }
                     ?: if (details.kind != ShiftKind.OFF) "⏱ ${details.kind.hoursPerShift} ч (план)" else null
