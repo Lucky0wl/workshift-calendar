@@ -232,6 +232,31 @@ private data class ShiftTemplate(
     val isBuiltIn: Boolean = false
 )
 
+private fun ShiftDetails.calculateTotalHours(): Double {
+    if (kind == ShiftKind.OFF) return 0.0
+    val customH = customHours.replace(',', '.').toDoubleOrNull()
+    if (customH != null && customH > 0) return customH
+
+    if (startTime.isNotBlank() && endTime.isNotBlank()) {
+        try {
+            val startParts = startTime.split(":")
+            val endParts = endTime.split(":")
+            if (startParts.size >= 2 && endParts.size >= 2) {
+                val startMins = startParts[0].toInt() * 60 + startParts[1].toInt()
+                var endMins = endParts[0].toInt() * 60 + endParts[1].toInt()
+                if (endMins <= startMins) endMins += 24 * 60
+                return (endMins - startMins) / 60.0
+            }
+        } catch (_: Exception) {}
+    }
+    return kind.hoursPerShift.toDouble()
+}
+
+private fun Double.formatHours(): String {
+    val i = this.toInt()
+    return if (this == i.toDouble()) i.toString() else String.format(Locale.US, "%.1f", this)
+}
+
 private data class DayCell(val date: LocalDate, val isCurrentMonth: Boolean)
 
 private enum class ExpenseCategory(val displayName: String, val emoji: String, val color: Color) {
@@ -561,7 +586,7 @@ private fun CalendarScreen(
     val monthSalary = remember(monthFiltered, shiftRates) {
         monthFiltered.values.sumOf { it.customSalary.toIntOrNull() ?: shiftRates[it.kind]?.toIntOrNull() ?: 0 }
     }
-    val monthHours = remember(monthFiltered) { monthFiltered.values.sumOf { it.kind.hoursPerShift } }
+    val monthHours = remember(monthFiltered) { monthFiltered.values.sumOf { it.calculateTotalHours() } }
 
     val initialPage = Int.MAX_VALUE / 2
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { Int.MAX_VALUE })
@@ -613,7 +638,7 @@ private fun CalendarScreen(
                     if (monthWorkCount > 0) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             StatChip("$monthWorkCount смен")
-                            if (monthHours > 0) StatChip("$monthHours ч")
+                            if (monthHours > 0) StatChip("${monthHours.formatHours()} ч")
                             if (monthSalary > 0) StatChip("$monthSalary ₽", highlight = true)
                         }
                     }
@@ -847,7 +872,7 @@ private fun StatsScreen(
     val filtered = remember(month, assignments) { assignments.filter { (d, _) -> YearMonth.from(d) == month } }
     val workShifts = remember(filtered) { filtered.values.filter { it.kind != ShiftKind.OFF } }
     val totalShifts = workShifts.size
-    val totalHours = workShifts.sumOf { it.customHours.toIntOrNull() ?: it.kind.hoursPerShift }
+    val totalHours = workShifts.sumOf { it.calculateTotalHours() }
     val totalEarnings = remember(filtered, shiftRates) {
         filtered.values.sumOf { it.customSalary.toIntOrNull() ?: shiftRates[it.kind]?.toIntOrNull() ?: 0 }
     }
@@ -897,7 +922,7 @@ private fun StatsScreen(
         // Summary cards
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SummaryCard("Смен", totalShifts.toString(), MaterialTheme.colorScheme.primaryContainer, Modifier.weight(1f))
-            SummaryCard("Часов", totalHours.toString(), MaterialTheme.colorScheme.secondaryContainer, Modifier.weight(1f))
+            SummaryCard("Часов", totalHours.formatHours(), MaterialTheme.colorScheme.secondaryContainer, Modifier.weight(1f))
             SummaryCard(if (calculateTax) "На руки" else "Начислено", if (displayEarnings > 0) "$displayEarnings ₽" else "—", MaterialTheme.colorScheme.tertiaryContainer, Modifier.weight(1f))
         }
 
@@ -985,7 +1010,7 @@ private fun StatsScreen(
                 Text("По типам смен", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 ShiftKind.values().filter { it != ShiftKind.OFF }.forEach { kind ->
                     val count = workShifts.count { it.kind == kind }
-                    val hours = count * kind.hoursPerShift
+                    val hours = workShifts.filter { it.kind == kind }.sumOf { it.calculateTotalHours() }
                     val earnings = filtered.values.filter { it.kind == kind }
                         .sumOf { it.customSalary.toIntOrNull() ?: shiftRates[kind]?.toIntOrNull() ?: 0 }
                     Row(
@@ -999,7 +1024,7 @@ private fun StatsScreen(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("$count×", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                            if (hours > 0) Text("$hours ч", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (hours > 0) Text("${hours.formatHours()} ч", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (earnings > 0) Text("$earnings ₽", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         }
                     }
@@ -2559,7 +2584,7 @@ private fun exportToPdf(context: Context, month: YearMonth, filtered: Map<LocalD
     y += 40f
 
     var totalEarnings = 0
-    var totalHours = 0
+    var totalHours = 0.0
     val sortedShifts = filtered.entries.sortedBy { it.key.dayOfMonth }
 
     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -2572,12 +2597,12 @@ private fun exportToPdf(context: Context, month: YearMonth, filtered: Map<LocalD
     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
     for ((date, details) in sortedShifts) {
         if (details.kind == ShiftKind.OFF) continue
-        val hours = details.customHours.toIntOrNull() ?: details.kind.hoursPerShift
+        val hours = details.calculateTotalHours()
         val earnings = details.customSalary.toIntOrNull() ?: shiftRates[details.kind]?.toIntOrNull() ?: 0
         
         canvas.drawText(date.toString(), 50f, y, paint)
         canvas.drawText(details.kind.displayName, 150f, y, paint)
-        canvas.drawText("$hours ч", 300f, y, paint)
+        canvas.drawText("${hours.formatHours()} ч", 300f, y, paint)
         canvas.drawText("$earnings ₽", 400f, y, paint)
         
         totalHours += hours
@@ -2590,7 +2615,7 @@ private fun exportToPdf(context: Context, month: YearMonth, filtered: Map<LocalD
     y += 20f
     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     canvas.drawText("ИТОГО:", 150f, y, paint)
-    canvas.drawText("$totalHours ч", 300f, y, paint)
+    canvas.drawText("${totalHours.formatHours()} ч", 300f, y, paint)
     canvas.drawText("$totalEarnings ₽", 400f, y, paint)
 
     pdfDocument.finishPage(page)
