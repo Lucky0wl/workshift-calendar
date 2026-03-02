@@ -776,11 +776,12 @@ private fun DayCard(
     val isWorking = hasShift && shiftDetails!!.kind != ShiftKind.OFF
 
     // Background: tinted fill when shift is assigned — much more visible than border-only
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
     val bgColor = when {
         !cell.isCurrentMonth -> Color.Transparent
         isToday -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-        isWorking -> shiftDetails!!.kind.lightColor.copy(alpha = 0.85f)
-        hasShift -> Color(0xFFEEEEEE) // OFF day — subtle gray
+        isWorking -> if (isDark) shiftDetails!!.kind.color.copy(alpha = 0.35f) else shiftDetails!!.kind.lightColor.copy(alpha = 0.85f)
+        hasShift -> if (isDark) Color(0xFF333333) else Color(0xFFEEEEEE) // OFF day — subtle gray
         else -> MaterialTheme.colorScheme.surface
     }
 
