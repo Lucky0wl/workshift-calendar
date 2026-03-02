@@ -136,9 +136,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -147,23 +144,6 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
-data class ProverkaChekaResponse(
-    val code: Int,
-    val data: ProverkaChekaData?
-)
-
-data class ProverkaChekaData(
-    val json: ProverkaChekaJson?
-)
-
-data class ProverkaChekaJson(
-    val items: List<ProverkaChekaItem>?
-)
-
-data class ProverkaChekaItem(
-    val name: String,
-    val sum: Int
-)
 
 // ═══════════════════════════════════════════════
 // DataStore
@@ -1834,126 +1814,13 @@ private fun AddExpenseDialog(
         if (YearMonth.from(it) == month) it.dayOfMonth.toString() else "1"
     }) }
 
-    var isScanning by remember { mutableStateOf(false) }
     val context = LocalContext.current
-
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        isScanning = true
-        try {
-            val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(inputStream)
-            val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
-            val options = com.google.mlkit.vision.barcode.BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
-                .build()
-            val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient(options)
-
-            scanner.process(image)
-                .addOnSuccessListener { barcodes ->
-                    var foundQr = false
-                    for (barcode in barcodes) {
-                        val rawValue = barcode.rawValue
-                        if (rawValue != null && rawValue.contains("t=") && rawValue.contains("s=") && rawValue.contains("fn=")) {
-                            foundQr = true
-                            android.widget.Toast.makeText(context, "QR найден, загрузка чека...", android.widget.Toast.LENGTH_SHORT).show()
-                            
-                            // 1. Extract exact sum from QR as fallback
-                            val sumMatch = Regex("s=([\\d.]+)").find(rawValue)
-                            val fallbackSum = sumMatch?.groupValues?.get(1)?.toFloatOrNull()?.toInt() ?: 0
-
-                            // 2. Fetch from ProverkaCheka API
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                try {
-                                    val url = java.net.URL("https://proverkacheka.com/api/v1/check/get")
-                                    val connection = url.openConnection() as java.net.HttpURLConnection
-                                    connection.requestMethod = "POST"
-                                    connection.doOutput = true
-                                    connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-
-                                    val postData = "qr=${java.net.URLEncoder.encode(rawValue, "UTF-8")}&token=proverkacheka.com"
-                                    connection.outputStream.use { os ->
-                                        val input = postData.toByteArray(Charsets.UTF_8)
-                                        os.write(input, 0, input.size)
-                                    }
-
-                                    val responseCode = connection.responseCode
-                                    if (responseCode == 200) {
-                                        val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-                                        val parsed = com.google.gson.Gson().fromJson(responseText, ProverkaChekaResponse::class.java)
-                                        
-                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                            if (parsed.code == 1 && parsed.data?.json?.items != null) {
-                                                // Success: Build shopping list
-                                                val items = parsed.data.json.items
-                                                val itemsText = items.joinToString("\n") { "• ${it.name} — ${it.sum / 100.0} ₽" }
-                                                
-                                                val totalSumKopecks = items.sumOf { it.sum }
-                                                amount = (totalSumKopecks / 100).toString()
-                                                note = "🧾 Чек:\n$itemsText"
-                                                android.widget.Toast.makeText(context, "Чек успешно загружен!", android.widget.Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                // API Error / Limits / Not found
-                                                amount = fallbackSum.toString()
-                                                note = "🧾 Чек (QR: Итог)"
-                                                android.widget.Toast.makeText(context, "API не вернул товары. Используется Итог из QR.", android.widget.Toast.LENGTH_LONG).show()
-                                            }
-                                            isScanning = false
-                                        }
-                                    } else {
-                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                            amount = fallbackSum.toString()
-                                            note = "🧾 Чек (QR: Итог)"
-                                            android.widget.Toast.makeText(context, "Ошибка API чеков. Используется Итог из QR.", android.widget.Toast.LENGTH_SHORT).show()
-                                            isScanning = false
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        amount = fallbackSum.toString()
-                                        note = "🧾 Чек (QR: Итог)"
-                                        android.widget.Toast.makeText(context, "Сбой загрузки чека. Используется Итог из QR.", android.widget.Toast.LENGTH_SHORT).show()
-                                        isScanning = false
-                                    }
-                                }
-                            }
-                            break // Stop after finding first receipt QR
-                        }
-                    }
-                    if (!foundQr) {
-                        android.widget.Toast.makeText(context, "QR-код кассового чека не найден", android.widget.Toast.LENGTH_SHORT).show()
-                        isScanning = false
-                    }
-                }
-                .addOnFailureListener { e ->
-                    android.widget.Toast.makeText(context, "Ошибка сканирования QR", android.widget.Toast.LENGTH_SHORT).show()
-                    isScanning = false
-                }
-        } catch (e: Exception) {
-            isScanning = false
-        }
-    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Добавить расход", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Scan Button
-                Button(
-                    onClick = { launcher.launch("image/*") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
-                ) {
-                    if (isScanning) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Сканирование...")
-                    } else {
-                        Text("📷 Сканировать чек (ML Kit)")
-                    }
-                }
-                
                 // Category selector
                 Text("Категория:", style = MaterialTheme.typography.labelMedium)
                 LazyColumn(modifier = Modifier.height(160.dp)) {
