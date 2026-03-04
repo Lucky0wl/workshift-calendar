@@ -1880,7 +1880,8 @@ private fun BudgetScreen(
     var showAddDialog by remember { mutableStateOf(false) }
 
     val monthExpenses = remember(month, expenses) {
-        expenses.filter { YearMonth.from(it.date) == month }.sortedByDescending { it.date }
+        expenses.filter { YearMonth.from(it.date) == month }
+            .sortedWith(compareByDescending<ExpenseEntry> { it.date }.thenByDescending { it.amount })
     }
     val totalExpenses = monthExpenses.sumOf { it.amount }
 
@@ -2089,7 +2090,7 @@ private fun BudgetScreen(
         AddExpenseDialog(
             month = month,
             onAdd = { entry ->
-                onExpensesChange((expenses + entry).sortedByDescending { it.date })
+                onExpensesChange((expenses + entry).sortedWith(compareByDescending<ExpenseEntry> { it.date }.thenByDescending { it.amount }))
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false }
