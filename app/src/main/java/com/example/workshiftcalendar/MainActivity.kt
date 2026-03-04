@@ -275,7 +275,8 @@ private data class ExpenseEntry(
     val date: LocalDate,
     val amount: Int,
     val category: ExpenseCategory,
-    val note: String = ""
+    val note: String = "",
+    val createdAt: Long = id.toLongOrNull() ?: 0L
 )
 
 // ═══════════════════════════════════════════════
@@ -284,7 +285,7 @@ private data class ExpenseEntry(
 
 private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "", val customHours: String = "", val startTime: String = "", val endTime: String = "")
 private data class ShiftTemplateDto(val id: String = "", val name: String = "", val description: String = "", val pattern: List<String> = emptyList())
-private data class ExpenseEntryDto(val id: String = "", val date: String = "", val amount: Int = 0, val category: String = "", val note: String = "")
+private data class ExpenseEntryDto(val id: String = "", val date: String = "", val amount: Int = 0, val category: String = "", val note: String = "", val createdAt: Long = 0L)
 private data class AppDataDto(
     val assignments: Map<String, ShiftDetailsDto> = emptyMap(),
     val customTemplates: List<ShiftTemplateDto> = emptyList(),
@@ -309,9 +310,10 @@ private fun ShiftTemplateDto.toDomain() = try {
     ShiftTemplate(id, name, description, pattern.map { ShiftKind.valueOf(it) })
 } catch (e: Exception) { null }
 
-private fun ExpenseEntry.toDto() = ExpenseEntryDto(id, date.toString(), amount, category.name, note)
+private fun ExpenseEntry.toDto() = ExpenseEntryDto(id, date.toString(), amount, category.name, note, createdAt)
 private fun ExpenseEntryDto.toDomain() = try {
-    ExpenseEntry(id, LocalDate.parse(date), amount, ExpenseCategory.valueOf(category), note)
+    val ts = if (createdAt > 0L) createdAt else (id.toLongOrNull() ?: 0L)
+    ExpenseEntry(id, LocalDate.parse(date), amount, ExpenseCategory.valueOf(category), note, ts)
 } catch (e: Exception) { null }
 
 private fun Map<ShiftKind, String>.toStringMap() = entries.associate { (k, v) -> k.name to v }
@@ -1881,7 +1883,7 @@ private fun BudgetScreen(
 
     val monthExpenses = remember(month, expenses) {
         expenses.filter { YearMonth.from(it.date) == month }
-            .sortedByDescending { it.id.toLongOrNull() ?: 0L }
+            .sortedByDescending { it.createdAt }
     }
     val totalExpenses = monthExpenses.sumOf { it.amount }
 
@@ -2090,7 +2092,7 @@ private fun BudgetScreen(
         AddExpenseDialog(
             month = month,
             onAdd = { entry ->
-                onExpensesChange((expenses + entry).sortedByDescending { it.id.toLongOrNull() ?: 0L })
+                onExpensesChange((expenses + entry).sortedByDescending { it.createdAt })
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false }
