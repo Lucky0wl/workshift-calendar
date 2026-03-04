@@ -2089,7 +2089,7 @@ private fun BudgetScreen(
         AddExpenseDialog(
             month = month,
             onAdd = { entry ->
-                onExpensesChange(expenses + entry)
+                onExpensesChange((expenses + entry).sortedByDescending { it.date })
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false }
