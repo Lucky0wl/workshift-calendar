@@ -6,6 +6,7 @@ import com.example.workshiftcalendar.data.model.AppDataDto
 import com.example.workshiftcalendar.domain.model.*
 import com.example.workshiftcalendar.ui.theme.AppStyle
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.util.UUID
