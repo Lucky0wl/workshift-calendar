@@ -13,7 +13,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.workshiftcalendar.domain.model.ExpenseCategory
 import com.example.workshiftcalendar.domain.model.ExpenseEntry
 import com.example.workshiftcalendar.domain.model.ShiftKind
@@ -219,8 +221,6 @@ fun BudgetCards(budget: BudgetData) {
         BudgetCard("Средний/день", "${budget.averageDaily.toInt()} ₽", MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
     }
 }
-
-import androidx.compose.ui.graphics.Color
 
 @Composable
 fun BudgetCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
