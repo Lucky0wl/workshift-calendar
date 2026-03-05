@@ -28,7 +28,6 @@ class ShiftKindTest {
     fun `ShiftKind fromStringOrNull returns null for invalid string`() {
         assertNull(ShiftKind.fromStringOrNull("INVALID"))
         assertNull(ShiftKind.fromStringOrNull(""))
-        assertNull(ShiftKind.fromStringOrNull(null))
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.example.workshiftcalendar.data.mapper
 
 import com.example.workshiftcalendar.domain.model.ExpenseCategory
 import com.example.workshiftcalendar.domain.model.ExpenseEntry
+import com.example.workshiftcalendar.data.model.ExpenseEntryDto
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.LocalDate
@@ -40,7 +41,8 @@ class ExpenseMapperTest {
             date = "2024-06-15",
             amount = 1000,
             category = "TRANSPORT",
-            note = ""
+            note = "",
+            createdAt = 1234567890L
         )
 
         val restored = dto.toDomain()
@@ -56,7 +58,8 @@ class ExpenseMapperTest {
             date = "2024-06-15",
             amount = 1000,
             category = "INVALID_CATEGORY",
-            note = ""
+            note = "",
+            createdAt = 0L
         )
 
         val restored = dto.toDomain()
@@ -71,7 +74,8 @@ class ExpenseMapperTest {
             date = "invalid-date",
             amount = 1000,
             category = "FOOD",
-            note = ""
+            note = "",
+            createdAt = 0L
         )
 
         val restored = dto.toDomain()
