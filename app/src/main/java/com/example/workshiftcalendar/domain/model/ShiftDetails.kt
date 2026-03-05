@@ -52,9 +52,9 @@ data class ShiftDetails(
     fun getLightColor(): Color = customColor?.let { 
         Color(
             alpha = 50,
-            red = (it shr 16) and 0xFF,
-            green = (it shr 8) and 0xFF,
-            blue = it and 0xFF
+            red = ((it shr 16) and 0xFF).toInt(),
+            green = ((it shr 8) and 0xFF).toInt(),
+            blue = (it and 0xFF).toInt()
         )
     } ?: kind.lightColor
 }
