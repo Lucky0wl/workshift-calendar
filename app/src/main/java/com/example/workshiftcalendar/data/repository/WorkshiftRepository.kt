@@ -168,7 +168,7 @@ class WorkshiftRepository(private val localDataSource: WorkshiftLocalDataSource)
     // ═══════════════════════════════════════════════
 
     suspend fun getExpenses(): List<ExpenseEntry> =
-        localDataSource.expensesFlow.first()
+        expensesFlow.first()
 
     suspend fun saveExpense(expense: ExpenseEntry) {
         val current = expensesFlow.first()
