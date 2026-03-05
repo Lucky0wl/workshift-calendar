@@ -265,7 +265,7 @@ fun PatternEditorDialog(
                 ) {
                     currentPattern.forEachIndexed { index, kind ->
                         IconButton(
-                            onClick = { currentPattern = currentPattern - index },
+                            onClick = { currentPattern = currentPattern.filterIndexed { i, _ -> i != index } },
                             modifier = Modifier.size(36.dp)
                         ) {
                             Text(kind.emoji)
