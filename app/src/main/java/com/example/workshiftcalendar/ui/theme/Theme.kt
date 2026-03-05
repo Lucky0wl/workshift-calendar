@@ -57,6 +57,17 @@ private val WarmPastelLight = lightColorScheme(
     onSurface = Color(0xFF1F2933)
 )
 
+private val WarmPastelDark = darkColorScheme(
+    primary = Color(0xFFFFB787),
+    secondary = Color(0xFFFF9EC7),
+    background = Color(0xFF1A1510),
+    surface = Color(0xFF25201A),
+    onPrimary = Color(0xFF3D1E0A),
+    onSecondary = Color(0xFF3D0A1F),
+    onBackground = Color(0xFFE5E7EB),
+    onSurface = Color(0xFFE5E7EB)
+)
+
 @Composable
 fun WorkshiftTheme(
     style: AppStyle,
@@ -69,7 +80,7 @@ fun WorkshiftTheme(
         AppStyle.DARK_AMOLED ->
             AmoledDark
         AppStyle.WARM_PASTEL ->
-            WarmPastelLight
+            if (useDarkTheme) WarmPastelDark else WarmPastelLight
     }
 
     MaterialTheme(
