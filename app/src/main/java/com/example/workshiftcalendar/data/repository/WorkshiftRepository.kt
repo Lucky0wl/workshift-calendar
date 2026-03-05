@@ -71,7 +71,7 @@ class WorkshiftRepository(private val localDataSource: WorkshiftLocalDataSource)
      */
     val customShiftColorsFlow: Flow<Map<ShiftKind, Long>> = appDataFlow.map { dto ->
         dto.customShiftColors.mapNotNull { (kindName, color) ->
-            ShiftKind.fromStringOrNull(kindName) to color
+            ShiftKind.fromStringOrNull(kindName)?.let { kind -> kind to color }
         }.toMap()
     }
 
