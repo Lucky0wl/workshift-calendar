@@ -159,8 +159,14 @@ fun Map<String, String>.toShiftKindMap(): Map<ShiftKind, String> =
         }
     }.filter { it.first != null }.associate { it.first!! to it.second }
 
+@JvmName("vacationPeriodToDto")
 fun List<VacationPeriod>.toDto() = map { it.toDto() }
+
+@JvmName("vacationPeriodDtoToDomain")
 fun List<VacationPeriodDto>.toDomain(): List<VacationPeriod> = mapNotNull { it.toDomain() }
 
+@JvmName("userProfileToDto")
 fun List<UserProfile>.toDto() = map { it.toDto() }
+
+@JvmName("userProfileDtoToDomain")
 fun List<UserProfileDto>.toDomain(): List<UserProfile> = mapNotNull { it.toDomain() }
