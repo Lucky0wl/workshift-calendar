@@ -75,18 +75,48 @@ class WorkshiftViewModel(application: Application) : AndroidViewModel(applicatio
     private fun loadInitialData() {
         viewModelScope.launch {
             try {
-                combine(
+                // Kotlin Flow combine supports max 5 streams per call, so we split into two groups
+                val part1 = combine(
                     repository.assignmentsFlow,
                     repository.templatesFlow,
                     repository.shiftRatesFlow,
                     repository.expensesFlow,
-                    repository.appStyleFlow,
+                    repository.appStyleFlow
+                ) { assignments, templates, shiftRates, expenses, appStyle ->
+                    listOf(assignments, templates, shiftRates, expenses, appStyle)
+                }
+
+                val part2 = combine(
                     repository.notificationSettingsFlow,
                     repository.customShiftColorsFlow,
                     repository.profilesFlow,
                     repository.currentProfileIdFlow,
                     repository.vacationsFlow
-                ) { assignments, templates, shiftRates, expenses, appStyle, notificationSettings, customColors, profiles, currentProfileId, vacations ->
+                ) { notificationSettings, customColors, profiles, currentProfileId, vacations ->
+                    listOf(notificationSettings, customColors, profiles, currentProfileId, vacations)
+                }
+
+                combine(part1, part2) { p1, p2 ->
+                    @Suppress("UNCHECKED_CAST")
+                    val assignments = p1[0] as Map<LocalDate, ShiftDetails>
+                    @Suppress("UNCHECKED_CAST")
+                    val templates = p1[1] as List<ShiftTemplate>
+                    @Suppress("UNCHECKED_CAST")
+                    val shiftRates = p1[2] as Map<ShiftKind, String>
+                    @Suppress("UNCHECKED_CAST")
+                    val expenses = p1[3] as List<ExpenseEntry>
+                    val appStyle = p1[4] as com.example.workshiftcalendar.ui.theme.AppStyle
+
+                    @Suppress("UNCHECKED_CAST")
+                    val notificationSettings = p2[0] as Pair<Boolean, String>
+                    @Suppress("UNCHECKED_CAST")
+                    val customColors = p2[1] as Map<ShiftKind, Long>
+                    @Suppress("UNCHECKED_CAST")
+                    val profiles = p2[2] as List<UserProfile>
+                    val currentProfileId = p2[3] as String?
+                    @Suppress("UNCHECKED_CAST")
+                    val vacations = p2[4] as List<VacationPeriod>
+
                     WorkshiftUiState(
                         assignments = assignments,
                         templates = templates,
