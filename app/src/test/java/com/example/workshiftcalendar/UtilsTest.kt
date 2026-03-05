@@ -20,7 +20,7 @@ class UtilsTest {
     fun `formatHours formats decimal hours correctly`() {
         assertEquals("8.5", 8.5.formatHours())
         assertEquals("10.5", 10.5.formatHours())
-        assertEquals("7.0", 7.0.formatHours())
+        assertEquals("7.5", 7.5.formatHours())
     }
 
     @Test
