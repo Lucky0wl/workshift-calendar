@@ -31,10 +31,12 @@ android {
                 keyPassword System.getenv("KEY_PASSWORD") ?: ""
             } else {
                 // Fallback для локальной сборки без ключа
-                storeFile file("debug.keystore")
-                storePassword "android"
-                keyAlias "androiddebugkey"
-                keyPassword "android"
+                if (file("debug.keystore").exists()) {
+                    storeFile file("debug.keystore")
+                    storePassword "android"
+                    keyAlias "androiddebugkey"
+                    keyPassword "android"
+                }
             }
         }
         debug {
@@ -51,7 +53,10 @@ android {
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            // Only apply signing config if it's fully configured
+            if (System.getenv("KEYSTORE_PATH") || file("debug.keystore").exists()) {
+                signingConfig signingConfigs.release
+            }
         }
         debug {
             minifyEnabled false
