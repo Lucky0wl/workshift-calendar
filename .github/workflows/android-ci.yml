@@ -29,13 +29,10 @@ jobs:
       uses: gradle/actions/setup-gradle@v3
 
     - name: Build with Gradle
-      run: ./gradlew build --stacktrace --no-daemon
+      run: ./gradlew assembleDebug assembleRelease --no-daemon
 
-    - name: Run tests
+    - name: Run unit tests
       run: ./gradlew test --no-daemon
-
-    - name: Build debug APK
-      run: ./gradlew assembleDebug --no-daemon
 
     - name: Upload debug APK
       uses: actions/upload-artifact@v4
@@ -43,9 +40,6 @@ jobs:
         name: app-debug
         path: app/build/outputs/apk/debug/app-debug.apk
         if-no-files-found: ignore
-
-    - name: Build release APK (without signing)
-      run: ./gradlew assembleRelease --no-daemon
 
     - name: Upload release APK
       uses: actions/upload-artifact@v4
