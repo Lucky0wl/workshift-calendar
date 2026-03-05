@@ -1,5 +1,6 @@
 package com.example.workshiftcalendar.domain.model
 
+import androidx.compose.ui.graphics.Color
 import java.time.LocalDate
 
 /**
