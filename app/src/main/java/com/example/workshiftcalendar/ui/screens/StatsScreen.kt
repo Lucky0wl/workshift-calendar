@@ -15,8 +15,10 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.workshiftcalendar.domain.model.ShiftDetails
 import com.example.workshiftcalendar.domain.model.ShiftKind
 import com.example.workshiftcalendar.ui.viewmodel.WorkshiftViewModel
+import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale

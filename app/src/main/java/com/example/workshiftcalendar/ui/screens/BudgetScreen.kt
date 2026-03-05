@@ -12,9 +12,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.workshiftcalendar.domain.model.ExpenseCategory
 import com.example.workshiftcalendar.domain.model.ExpenseEntry
+import com.example.workshiftcalendar.domain.model.ShiftKind
 import com.example.workshiftcalendar.ui.viewmodel.WorkshiftViewModel
 import java.time.LocalDate
 import java.time.YearMonth
