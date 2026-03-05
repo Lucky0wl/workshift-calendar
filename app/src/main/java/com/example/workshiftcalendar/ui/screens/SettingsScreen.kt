@@ -162,7 +162,8 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Outlined.Info,
                     title = "Версия",
-                    subtitle = "4.0.0"
+                    subtitle = "4.0.0",
+                    onClick = {}
                 )
             }
 

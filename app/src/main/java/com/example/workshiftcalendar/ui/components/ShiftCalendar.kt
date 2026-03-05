@@ -55,7 +55,7 @@ fun ShiftCalendar(
             }
             
             Text(
-                text = month.month.getDisplayName(TextStyle.GENITIVE, Locale("ru")).replaceFirstChar { it.uppercase() } + 
+                text = month.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale("ru")).replaceFirstChar { it.uppercase() } + 
                        " ${month.year}",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,

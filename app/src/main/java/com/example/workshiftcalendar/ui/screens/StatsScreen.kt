@@ -131,7 +131,8 @@ private fun calculateStats(
     val totalHoursByType = ShiftKind.entries.associateWith { kind ->
         monthShifts
             .filter { it.value.kind == kind }
-            .sumOf { it.value.calculateTotalHours() }
+            .values
+            .sumOf { it.calculateTotalHours() }
     }
 
     val earningsByType = ShiftKind.entries.filter { it != ShiftKind.OFF }.associateWith { kind ->
@@ -179,7 +180,7 @@ fun MonthSelector(
         }
         
         Text(
-            text = month.month.getDisplayName(TextStyle.GENITIVE, Locale("ru")).replaceFirstChar { it.uppercase() } +
+            text = month.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale("ru")).replaceFirstChar { it.uppercase() } +
                    " ${month.year}",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold

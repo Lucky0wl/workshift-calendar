@@ -78,7 +78,7 @@ fun BudgetScreen(
                     Text("‹", fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 }
                 Text(
-                    text = selectedMonth.month.getDisplayName(TextStyle.GENITIVE, Locale("ru"))
+                    text = selectedMonth.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale("ru"))
                         .replaceFirstChar { it.uppercase() } + " ${selectedMonth.year}",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
@@ -186,7 +186,7 @@ private fun calculateBudget(
     monthExpenses: List<ExpenseEntry>,
     shiftRates: Map<ShiftKind, String>
 ): BudgetData {
-    val totalEarnings = monthShifts.sumOf { (_, shift) ->
+    val totalEarnings = monthShifts.values.sumOf { shift ->
         if (shift.kind == ShiftKind.OFF) return@sumOf 0.0
         shift.customSalary.toDoubleOrNull() ?: (shiftRates[shift.kind]?.toDoubleOrNull() ?: 0.0)
     }
