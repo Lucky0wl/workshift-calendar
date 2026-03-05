@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.workshiftcalendar.domain.model.ExpenseCategory
 import com.example.workshiftcalendar.domain.model.ExpenseEntry
+import com.example.workshiftcalendar.domain.model.ShiftDetails
 import com.example.workshiftcalendar.domain.model.ShiftKind
 import com.example.workshiftcalendar.ui.viewmodel.WorkshiftViewModel
 import java.time.LocalDate
