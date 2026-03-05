@@ -125,7 +125,7 @@ fun SettingsScreen(
                     icon = Icons.Outlined.AttachMoney,
                     title = "Ставки за смены",
                     subtitle = ShiftKind.entries.filter { it != ShiftKind.OFF }.joinToString(", ") { kind ->
-                        "${kind.shortName}: ${uiState.shiftRates[kind].ifBlank { "0" }} ₽"
+                        "${kind.shortName}: ${uiState.shiftRates[kind] ?: "0"} ₽"
                     },
                     onClick = { showShiftRates = true }
                 )
@@ -284,13 +284,6 @@ fun SettingsItem(
             }
         }
         trailing()
-        if (trailing == {}) {
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
     }
 }
 
