@@ -505,8 +505,7 @@ fun WorkshiftAppRoot() {
                     month = selectedMonth,
                     onMonthChanged = { selectedMonth = it },
                     assignments = assignments,
-                    shiftRates = shiftRates,
-                    onOpenLocationsMap = { showLocationsMap = true }
+                    shiftRates = shiftRates
                 )
                 BottomTab.BUDGET -> BudgetScreen(
                     modifier = Modifier.padding(innerPadding),
@@ -520,7 +519,9 @@ fun WorkshiftAppRoot() {
                 BottomTab.OBJECTS -> ObjectsScreen(
                     modifier = Modifier.padding(innerPadding),
                     locationObjects = locationObjects,
-                    onLocationObjectsChange = { locationObjects = it }
+                    onLocationObjectsChange = { locationObjects = it },
+                    assignments = assignments,
+                    onOpenLocationsMap = { showLocationsMap = true }
                 )
                 BottomTab.SETTINGS -> SettingsScreen(
                     modifier = Modifier.padding(innerPadding),
@@ -914,8 +915,7 @@ private fun StatsScreen(
     month: YearMonth,
     onMonthChanged: (YearMonth) -> Unit,
     assignments: Map<LocalDate, ShiftDetails>,
-    shiftRates: Map<ShiftKind, String>,
-    onOpenLocationsMap: () -> Unit
+    shiftRates: Map<ShiftKind, String>
 ) {
     val context = LocalContext.current
     val locale = Locale.getDefault()
@@ -1009,27 +1009,6 @@ private fun StatsScreen(
                         weeklyData.forEachIndexed { i, _ ->
                             Text("Нед ${i + 1}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    }
-                }
-            }
-        }
-
-        // All locations map button
-        val coordsRegex = Regex("Lat:\\s*(-?\\d+\\.\\d+),\\s*Lng:\\s*(-?\\d+\\.\\d+)")
-        val uniqueLocations = assignments.values.map { it.location }.filter { it.isNotBlank() && coordsRegex.containsMatchIn(it) }.distinct()
-        if (uniqueLocations.isNotEmpty()) {
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Outlined.Place, null, tint = MaterialTheme.colorScheme.primary)
-                        Text("Мои объекты на карте", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    }
-                    Text("Сохранено уникальных мест работы с геометками: ${uniqueLocations.size}.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(
-                        onClick = onOpenLocationsMap,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Открыть карту объектов")
                     }
                 }
             }
@@ -1426,7 +1405,9 @@ private fun SettingsScreen(
 private fun ObjectsScreen(
     modifier: Modifier,
     locationObjects: List<LocationObject>,
-    onLocationObjectsChange: (List<LocationObject>) -> Unit
+    onLocationObjectsChange: (List<LocationObject>) -> Unit,
+    assignments: Map<LocalDate, ShiftDetails> = emptyMap(),
+    onOpenLocationsMap: () -> Unit = {}
 ) {
     var showEditDialog by remember { mutableStateOf<LocationObject?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -1444,6 +1425,27 @@ private fun ObjectsScreen(
                 Text("🏢 База объектов", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 IconButton(onClick = { showCreateDialog = true }) {
                     Icon(Icons.Outlined.Add, contentDescription = "Добавить объект", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+
+        // All locations map button
+        val coordsRegex = Regex("Lat:\\s*(-?\\d+\\.\\d+),\\s*Lng:\\s*(-?\\d+\\.\\d+)")
+        val uniqueLocations = assignments.values.map { it.location }.filter { it.isNotBlank() && coordsRegex.containsMatchIn(it) }.distinct()
+        if (uniqueLocations.isNotEmpty()) {
+            ElevatedCard(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Outlined.Place, null, tint = MaterialTheme.colorScheme.primary)
+                        Text("Мои объекты на карте", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    }
+                    Text("Сохранено уникальных мест работы с геометками: ${uniqueLocations.size}.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(
+                        onClick = onOpenLocationsMap,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Открыть карту объектов")
+                    }
                 }
             }
         }
@@ -1748,6 +1750,8 @@ private fun ShiftPickerDialog(
                     if (loc != null) currentLocation = "Lat: ${String.format(Locale.US, "%.4f", loc.latitude)}, Lng: ${String.format(Locale.US, "%.4f", loc.longitude)}"
                 }
             } catch (_: SecurityException) {}
+        } else {
+            locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
     }
     val fetchLocation: () -> Unit = {
@@ -2837,7 +2841,6 @@ fun LocationsMapScreen(
 ) {
     androidx.activity.compose.BackHandler(onBack = onBack)
     var selectedStats by remember { mutableStateOf<LocationStats?>(null) }
-    var showMetro by remember { mutableStateOf(false) }
     
     val coordsRegex = Regex("Lat:\\s*(-?\\d+\\.\\d+),\\s*Lng:\\s*(-?\\d+\\.\\d+)")
     val statsList = remember(assignments, shiftRates) {
@@ -2866,18 +2869,14 @@ fun LocationsMapScreen(
             Row(Modifier.fillMaxWidth().padding(16.dp).background(MaterialTheme.colorScheme.background), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "Назад") }
                 Spacer(Modifier.width(8.dp))
-                Text("Карта объектов", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { showMetro = !showMetro }) {
-                    androidx.compose.material3.Checkbox(checked = showMetro, onCheckedChange = { showMetro = it }, modifier = Modifier.size(24.dp))
-                    Text("Метро", style = MaterialTheme.typography.bodySmall)
-                }
+                Text("Карта объектов", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
             
             AndroidView(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 factory = { ctx ->
                     MapView(ctx).apply {
-                        setTileSource(if (showMetro) TileSourceFactory.PUBLIC_TRANSPORT else TileSourceFactory.MAPNIK)
+                        setTileSource(TileSourceFactory.MAPNIK)
                         setMultiTouchControls(true)
                         controller.setZoom(11.0)
                         
@@ -2913,7 +2912,7 @@ fun LocationsMapScreen(
                     }
                 },
                 update = { view ->
-                    view.setTileSource(if (showMetro) TileSourceFactory.PUBLIC_TRANSPORT else TileSourceFactory.MAPNIK)
+                    view.setTileSource(TileSourceFactory.MAPNIK)
                 }
             )
         }
@@ -3024,19 +3023,12 @@ fun MapPickerScreen(
     onCancel: () -> Unit
 ) {
     var pickedPoint by remember { mutableStateOf<GeoPoint?>(if (initialLat != null && initialLng != null) GeoPoint(initialLat, initialLng) else null) }
-    var showMetro by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(Color.White)) {
         // top bar
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onCancel) { Icon(Icons.Outlined.ArrowBack, "Cancel") }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Выберите точку", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { showMetro = !showMetro }) {
-                    androidx.compose.material3.Checkbox(checked = showMetro, onCheckedChange = { showMetro = it }, modifier = Modifier.size(24.dp))
-                    Text("Метро", style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            Text("Выберите точку", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Button(onClick = { pickedPoint?.let { onLocationPicked(it.latitude, it.longitude) } }, enabled = pickedPoint != null) {
                 Text("Готово")
             }
@@ -3047,7 +3039,7 @@ fun MapPickerScreen(
             modifier = Modifier.weight(1f),
             factory = { ctx ->
                 MapView(ctx).apply {
-                    setTileSource(if (showMetro) TileSourceFactory.PUBLIC_TRANSPORT else TileSourceFactory.MAPNIK)
+                    setTileSource(TileSourceFactory.MAPNIK)
                     setMultiTouchControls(true)
                     controller.setZoom(12.0)
 
@@ -3082,7 +3074,7 @@ fun MapPickerScreen(
                 }
             },
             update = { view ->
-                view.setTileSource(if (showMetro) TileSourceFactory.PUBLIC_TRANSPORT else TileSourceFactory.MAPNIK)
+                // Map automatically handles updates through its own logic in this simple use-case
             }
         )
     }
