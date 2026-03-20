@@ -22,6 +22,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +37,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -279,9 +282,19 @@ private data class ExpenseEntry(
 )
 
 data class LocationObject(
-    val id: String,
+    val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val addresses: List<String> = emptyList()
+    val addresses: List<String>
+)
+
+data class LocationStats(
+    val name: String,
+    val lat: Double,
+    val lng: Double,
+    val totalShifts: Int,
+    val totalHours: Double,
+    val totalEarnings: Int,
+    val notes: List<String>
 )
 
 // ═══════════════════════════════════════════════
@@ -382,6 +395,7 @@ fun WorkshiftAppRoot() {
     var locationObjects by remember { mutableStateOf(listOf<LocationObject>()) }
     var isLoaded by remember { mutableStateOf(false) }
     var showTemplatesScreen by remember { mutableStateOf(false) }
+    var showLocationsMap by remember { mutableStateOf(false) }
 
     // Load from DataStore once
     LaunchedEffect(Unit) {
@@ -430,6 +444,12 @@ fun WorkshiftAppRoot() {
                 assignments = assignments,
                 onAssignmentsChange = { assignments = it },
                 onBack = { showTemplatesScreen = false }
+            )
+        } else if (showLocationsMap) {
+            LocationsMapScreen(
+                assignments = assignments,
+                shiftRates = shiftRates,
+                onBack = { showLocationsMap = false }
             )
         } else {
             Scaffold(
@@ -484,7 +504,8 @@ fun WorkshiftAppRoot() {
                     month = selectedMonth,
                     onMonthChanged = { selectedMonth = it },
                     assignments = assignments,
-                    shiftRates = shiftRates
+                    shiftRates = shiftRates,
+                    onOpenLocationsMap = { showLocationsMap = true }
                 )
                 BottomTab.BUDGET -> BudgetScreen(
                     modifier = Modifier.padding(innerPadding),
@@ -892,7 +913,8 @@ private fun StatsScreen(
     month: YearMonth,
     onMonthChanged: (YearMonth) -> Unit,
     assignments: Map<LocalDate, ShiftDetails>,
-    shiftRates: Map<ShiftKind, String>
+    shiftRates: Map<ShiftKind, String>,
+    onOpenLocationsMap: () -> Unit
 ) {
     val context = LocalContext.current
     val locale = Locale.getDefault()
@@ -968,7 +990,7 @@ private fun StatsScreen(
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Смены по неделям", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
-                    val maxVal = (weeklyData.maxOrNull() ?: 1).coerceAtLeast(1)
+                    val maxVal = (weeklyData.maxOrNull() ?: 1).coerceAtLeast(5)
                     val barColor = MaterialTheme.colorScheme.primary
                     val bgColor = MaterialTheme.colorScheme.surfaceVariant
                     Canvas(modifier = Modifier.fillMaxWidth().height(100.dp)) {
@@ -1003,19 +1025,10 @@ private fun StatsScreen(
                     }
                     Text("Сохранено уникальных мест работы с геометками: ${uniqueLocations.size}.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Button(
-                        onClick = {
-                            val coords = uniqueLocations.mapNotNull { loc ->
-                                val m = coordsRegex.find(loc)
-                                if (m != null) "${m.groupValues[1]},${m.groupValues[2]}" else null
-                            }
-                            if (coords.isNotEmpty()) {
-                                val url = "https://www.google.com/maps/dir/" + coords.joinToString("/")
-                                try { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) } catch (_: Exception) {}
-                            }
-                        },
+                        onClick = onOpenLocationsMap,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Открыть на Google Картах")
+                        Text("Открыть карту объектов")
                     }
                 }
             }
@@ -1775,10 +1788,10 @@ private fun ShiftPickerDialog(
                         modifier = Modifier.fillMaxWidth(), singleLine = true
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        val startInteractionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        val startInteractionSource = remember { MutableInteractionSource() }
                         LaunchedEffect(startInteractionSource) {
                             startInteractionSource.interactions.collect {
-                                if (it is androidx.compose.foundation.interaction.PressInteraction.Release) pickingStartTime = true
+                                if (it is PressInteraction.Release) pickingStartTime = true
                             }
                         }
                         OutlinedTextField(
@@ -1791,10 +1804,10 @@ private fun ShiftPickerDialog(
                             interactionSource = startInteractionSource
                         )
 
-                        val endInteractionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        val endInteractionSource = remember { MutableInteractionSource() }
                         LaunchedEffect(endInteractionSource) {
                             endInteractionSource.interactions.collect {
-                                if (it is androidx.compose.foundation.interaction.PressInteraction.Release) pickingEndTime = true
+                                if (it is PressInteraction.Release) pickingEndTime = true
                             }
                         }
                         OutlinedTextField(
@@ -2804,6 +2817,119 @@ fun UpdateCenterCard() {
                         modifier = Modifier.weight(1f)
                     ) {
                         Text("Установить")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LocationsMapScreen(
+    assignments: Map<LocalDate, ShiftDetails>,
+    shiftRates: Map<ShiftKind, String>,
+    onBack: () -> Unit
+) {
+    androidx.activity.compose.BackHandler(onBack = onBack)
+    var selectedStats by remember { mutableStateOf<LocationStats?>(null) }
+    
+    val coordsRegex = Regex("Lat:\\s*(-?\\d+\\.\\d+),\\s*Lng:\\s*(-?\\d+\\.\\d+)")
+    val statsList = remember(assignments, shiftRates) {
+        val groups = assignments.values
+            .filter { it.kind != ShiftKind.OFF && coordsRegex.containsMatchIn(it.location) }
+            .groupBy { it.location }
+            
+        groups.mapNotNull { (locStr, shifts) ->
+            val match = coordsRegex.find(locStr) ?: return@mapNotNull null
+            val lat = match.groupValues[1].toDoubleOrNull() ?: return@mapNotNull null
+            val lng = match.groupValues[2].toDoubleOrNull() ?: return@mapNotNull null
+            val name = locStr.replace(Regex("\\s*\\(Lat:.*\\)"), "").trim()
+            val cleanName = if (name.isEmpty()) "Неизвестный объект" else name
+            
+            val totalShifts = shifts.size
+            val totalHours = shifts.sumOf { it.calculateTotalHours() }
+            val totalEarnings = shifts.sumOf { it.customSalary.toIntOrNull() ?: shiftRates[it.kind]?.toIntOrNull() ?: 0 }
+            val notes = shifts.map { it.note }.filter { it.isNotBlank() }.distinct()
+            
+            LocationStats(cleanName, lat, lng, totalShifts, totalHours, totalEarnings, notes)
+        }
+    }
+
+    Box(Modifier.fillMaxSize().background(Color.White)) {
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(16.dp).background(Color.White), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "Назад") }
+                Spacer(Modifier.width(8.dp))
+                Text("Карта объектов", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            
+            AndroidView(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                factory = { ctx ->
+                    MapView(ctx).apply {
+                        setTileSource(TileSourceFactory.MAPNIK)
+                        setMultiTouchControls(true)
+                        controller.setZoom(11.0)
+                        
+                        val overlayReceiver = object : MapEventsReceiver {
+                            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
+                                selectedStats = null
+                                return true
+                            }
+                            override fun longPressHelper(p: GeoPoint?): Boolean = false
+                        }
+                        overlays.add(MapEventsOverlay(overlayReceiver))
+
+                        if (statsList.isNotEmpty()) {
+                            val avgLat = statsList.map { it.lat }.average()
+                            val avgLng = statsList.map { it.lng }.average()
+                            controller.setCenter(GeoPoint(avgLat, avgLng))
+                            
+                            statsList.forEach { stat ->
+                                val marker = Marker(this)
+                                marker.position = GeoPoint(stat.lat, stat.lng)
+                                marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                marker.title = stat.name
+                                marker.setOnMarkerClickListener { _, _ ->
+                                    selectedStats = stat
+                                    controller.animateTo(marker.position)
+                                    true
+                                }
+                                overlays.add(marker)
+                            }
+                        } else {
+                            controller.setCenter(GeoPoint(55.7558, 37.6173))
+                        }
+                    }
+                }
+            )
+        }
+
+        // Floating Card for selected stats
+        selectedStats?.let { stat ->
+            ElevatedCard(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(stat.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("Смен: ${stat.totalShifts}", style = MaterialTheme.typography.bodySmall)
+                        Text("Часов: ${stat.totalHours.formatHours()}", style = MaterialTheme.typography.bodySmall)
+                        Text("Сумма: ${stat.totalEarnings} ₽", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                    if (stat.notes.isNotEmpty()) {
+                        Text("Заметки/Работы:", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 120.dp).verticalScroll(rememberScrollState())) {
+                            stat.notes.forEach { note ->
+                                Text("• $note", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 2.dp))
+                            }
+                        }
                     }
                 }
             }
