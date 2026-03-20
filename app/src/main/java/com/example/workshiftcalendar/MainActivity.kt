@@ -1101,7 +1101,10 @@ private fun buildShareText(
         val emoji = when (d.kind) {
             ShiftKind.MORNING -> "🌅"; ShiftKind.EVENING -> "🌆"; ShiftKind.NIGHT -> "🌙"; ShiftKind.OFF -> "🏖️"
         }
-        val loc = if (d.location.isNotBlank()) " | ${d.location}" else ""
+        val loc = if (d.location.isNotBlank()) {
+            val cleaned = d.location.replace(Regex("\\s*\\(Lat:.*\\)"), "")
+            " | $cleaned"
+        } else ""
         val note = if (d.note.isNotBlank()) " — ${d.note}" else ""
         "${date.format(fmt)} $emoji ${d.kind.displayName}$loc$note"
     }
@@ -1638,7 +1641,7 @@ fun ObjectPickerSheet(
                                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                 .clickable {
                                     if (obj.addresses.size == 1) {
-                                        onPick(obj.addresses.first())
+                                        onPick("${obj.name}: ${obj.addresses.first()}")
                                     } else if (obj.addresses.isEmpty()) {
                                         onPick(obj.name)
                                     } else {
@@ -2066,7 +2069,16 @@ private fun DayDetailDialog(
                         verticalAlignment = Alignment.CenterVertically) {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
                             Icon(Icons.Outlined.Place, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                            Text(details.location, style = MaterialTheme.typography.bodySmall)
+                            val displayLoc = details.location.replace(Regex("\\s*\\(Lat:.*\\)"), "")
+                            if (displayLoc.contains(": ")) {
+                                val separatorIndex = displayLoc.indexOf(": ")
+                                Column {
+                                    Text(displayLoc.substring(0, separatorIndex), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                    Text(displayLoc.substring(separatorIndex + 2), style = MaterialTheme.typography.bodySmall)
+                                }
+                            } else {
+                                Text(displayLoc, style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                         if (coordsMatch != null) {
                             TextButton(onClick = {
@@ -2973,6 +2985,18 @@ private fun exportToPdf(context: Context, month: YearMonth, filtered: Map<LocalD
         canvas.drawText(details.kind.displayName, 150f, y, paint)
         canvas.drawText("${hours.formatHours()} ч", 300f, y, paint)
         canvas.drawText("$earnings ₽", 400f, y, paint)
+        
+        if (details.location.isNotBlank()) {
+            y += 14f
+            val originalTextSize = paint.textSize
+            paint.textSize = 9f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+            val cleanLoc = details.location.replace(Regex("\\s*\\(Lat:.*\\)"), "")
+            canvas.drawText(cleanLoc, 150f, y, paint)
+            paint.textSize = originalTextSize
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            y += 6f
+        }
         
         totalHours += hours
         totalEarnings += earnings
