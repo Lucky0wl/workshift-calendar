@@ -439,31 +439,31 @@ fun WorkshiftAppRoot() {
                         selected = currentTab == BottomTab.CALENDAR,
                         onClick = { currentTab = BottomTab.CALENDAR },
                         icon = { Icon(Icons.Outlined.CalendarMonth, null) },
-                        label = { Text("Календарь") }
+                        label = { Text("Календарь", maxLines = 1, softWrap = false, fontSize = 10.sp, overflow = TextOverflow.Visible) }
                     )
                     NavigationBarItem(
                         selected = currentTab == BottomTab.STATS,
                         onClick = { currentTab = BottomTab.STATS },
                         icon = { Icon(Icons.Outlined.BarChart, null) },
-                        label = { Text("Итоги") }
+                        label = { Text("Итоги", maxLines = 1, softWrap = false, fontSize = 10.sp, overflow = TextOverflow.Visible) }
                     )
                     NavigationBarItem(
                         selected = currentTab == BottomTab.BUDGET,
                         onClick = { currentTab = BottomTab.BUDGET },
                         icon = { Icon(Icons.Outlined.Wallet, null) },
-                        label = { Text("Бюджет") }
+                        label = { Text("Бюджет", maxLines = 1, softWrap = false, fontSize = 10.sp, overflow = TextOverflow.Visible) }
                     )
                     NavigationBarItem(
                         selected = currentTab == BottomTab.OBJECTS,
                         onClick = { currentTab = BottomTab.OBJECTS },
                         icon = { Icon(Icons.Outlined.Place, null) },
-                        label = { Text("Объекты") }
+                        label = { Text("Объекты", maxLines = 1, softWrap = false, fontSize = 10.sp, overflow = TextOverflow.Visible) }
                     )
                     NavigationBarItem(
                         selected = currentTab == BottomTab.SETTINGS,
                         onClick = { currentTab = BottomTab.SETTINGS },
                         icon = { Icon(Icons.Outlined.Settings, null) },
-                        label = { Text("Настройки") }
+                        label = { Text("Настройки", maxLines = 1, softWrap = false, fontSize = 10.sp, overflow = TextOverflow.Visible) }
                     )
                 }
             }
