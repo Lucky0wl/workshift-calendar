@@ -1373,6 +1373,7 @@ private fun SettingsScreen(
 // Objects Screen
 // ═══════════════════════════════════════════════
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ObjectsScreen(
     modifier: Modifier,
