@@ -195,7 +195,7 @@ class WorkshiftRepository(private val context: Context) {
 // ═══════════════════════════════════════════════
 // Domain Model
 // ═══════════════════════════════════════════════
-
+private enum class BottomTab(val label: String) {
     CALENDAR("Календарь"), STATS("Статистика"), BUDGET("Бюджет"), OBJECTS("Объекты"), SETTINGS("Настройки")
 }
 
