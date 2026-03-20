@@ -197,7 +197,7 @@ class WorkshiftRepository(private val context: Context) {
 // ═══════════════════════════════════════════════
 
 private enum class BottomTab(val label: String) {
-    CALENDAR("Календарь"), STATS("Статистика"), BUDGET("Бюджет"), TEMPLATES("Шаблоны"), SETTINGS("Настройки")
+    CALENDAR("Календарь"), STATS("Статистика"), BUDGET("Бюджет"), TEMPLATES("Шаблоны"), OBJECTS("Объекты"), SETTINGS("Настройки")
 }
 
 enum class ShiftKind(
@@ -279,6 +279,12 @@ private data class ExpenseEntry(
     val createdAt: Long = id.toLongOrNull() ?: 0L
 )
 
+data class LocationObject(
+    val id: String,
+    val name: String,
+    val addresses: List<String> = emptyList()
+)
+
 // ═══════════════════════════════════════════════
 // Serialisation DTOs
 // ═══════════════════════════════════════════════
@@ -286,6 +292,7 @@ private data class ExpenseEntry(
 private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "", val customHours: String = "", val startTime: String = "", val endTime: String = "")
 private data class ShiftTemplateDto(val id: String = "", val name: String = "", val description: String = "", val pattern: List<String> = emptyList())
 private data class ExpenseEntryDto(val id: String = "", val date: String = "", val amount: Int = 0, val category: String = "", val note: String = "", val createdAt: Long = 0L)
+private data class LocationObjectDto(val id: String = "", val name: String = "", val addresses: List<String> = emptyList())
 private data class AppDataDto(
     val assignments: Map<String, ShiftDetailsDto> = emptyMap(),
     val customTemplates: List<ShiftTemplateDto> = emptyList(),
@@ -293,7 +300,8 @@ private data class AppDataDto(
     val appStyle: String = AppStyle.MODERN_BLUE.name,
     val expenses: List<ExpenseEntryDto> = emptyList(),
     val notificationsEnabled: Boolean = false,
-    val notificationTime: String = "20:00"
+    val notificationTime: String = "20:00",
+    val locationObjects: List<LocationObjectDto> = emptyList()
 )
 
 private fun Map<LocalDate, ShiftDetails>.toDto() = entries.associate { (d, v) ->
@@ -372,6 +380,7 @@ fun WorkshiftAppRoot() {
     var expenses by remember { mutableStateOf(listOf<ExpenseEntry>()) }
     var notificationsEnabled by remember { mutableStateOf(false) }
     var notificationTime by remember { mutableStateOf("20:00") }
+    var locationObjects by remember { mutableStateOf(listOf<LocationObject>()) }
     var isLoaded by remember { mutableStateOf(false) }
 
     // Load from DataStore once
@@ -388,6 +397,7 @@ fun WorkshiftAppRoot() {
                 expenses = dto.expenses.mapNotNull { it.toDomain() }
                 notificationsEnabled = dto.notificationsEnabled
                 notificationTime = dto.notificationTime
+                locationObjects = dto.locationObjects.map { LocationObject(it.id, it.name, it.addresses) }
                 try { currentStyle = AppStyle.valueOf(dto.appStyle) } catch (_: Exception) {}
             }
         } catch (_: Exception) {}
@@ -395,7 +405,7 @@ fun WorkshiftAppRoot() {
     }
 
     // Auto-save on state change (only after initial load)
-    LaunchedEffect(assignments, shiftRates, currentStyle, expenses, notificationsEnabled, notificationTime, isLoaded) {
+    LaunchedEffect(assignments, shiftRates, currentStyle, expenses, notificationsEnabled, notificationTime, locationObjects, isLoaded) {
         if (!isLoaded) return@LaunchedEffect
         val dto = AppDataDto(
             assignments = assignments.toDto(),
@@ -404,7 +414,8 @@ fun WorkshiftAppRoot() {
             appStyle = currentStyle.name,
             expenses = expenses.map { it.toDto() },
             notificationsEnabled = notificationsEnabled,
-            notificationTime = notificationTime
+            notificationTime = notificationTime,
+            locationObjects = locationObjects.map { LocationObjectDto(it.id, it.name, it.addresses) }
         )
         context.dataStore.edit { it[APP_DATA_KEY] = appGson.toJson(dto) }
     }
@@ -438,6 +449,12 @@ fun WorkshiftAppRoot() {
                         label = { Text("Шаблоны") }
                     )
                     NavigationBarItem(
+                        selected = currentTab == BottomTab.OBJECTS,
+                        onClick = { currentTab = BottomTab.OBJECTS },
+                        icon = { Icon(Icons.Outlined.Place, null) },
+                        label = { Text("Объекты") }
+                    )
+                    NavigationBarItem(
                         selected = currentTab == BottomTab.SETTINGS,
                         onClick = { currentTab = BottomTab.SETTINGS },
                         icon = { Icon(Icons.Outlined.Settings, null) },
@@ -454,7 +471,8 @@ fun WorkshiftAppRoot() {
                     assignments = assignments,
                     onAssignmentsChange = { assignments = it },
                     templates = templates,
-                    shiftRates = shiftRates
+                    shiftRates = shiftRates,
+                    locationObjects = locationObjects
                 )
                 BottomTab.STATS -> StatsScreen(
                     modifier = Modifier.padding(innerPadding),
@@ -479,6 +497,11 @@ fun WorkshiftAppRoot() {
                     month = selectedMonth,
                     assignments = assignments,
                     onAssignmentsChange = { assignments = it }
+                )
+                BottomTab.OBJECTS -> ObjectsScreen(
+                    modifier = Modifier.padding(innerPadding),
+                    locationObjects = locationObjects,
+                    onLocationObjectsChange = { locationObjects = it }
                 )
                 BottomTab.SETTINGS -> SettingsScreen(
                     modifier = Modifier.padding(innerPadding),
@@ -573,7 +596,8 @@ private fun CalendarScreen(
     assignments: Map<LocalDate, ShiftDetails>,
     onAssignmentsChange: (Map<LocalDate, ShiftDetails>) -> Unit,
     templates: List<ShiftTemplate>,
-    shiftRates: Map<ShiftKind, String>
+    shiftRates: Map<ShiftKind, String>,
+    locationObjects: List<LocationObject> = emptyList()
 ) {
     val locale = Locale.getDefault()
     var showShiftDialogForDate by remember { mutableStateOf<LocalDate?>(null) }
@@ -713,6 +737,7 @@ private fun CalendarScreen(
             date = date,
             currentDetails = assignments[date],
             shiftRates = shiftRates,
+            locationObjects = locationObjects,
             onDetailsSaved = { details ->
                 val m = assignments.toMutableMap()
                 if (details == null) m.remove(date) else m[date] = details
@@ -1345,6 +1370,297 @@ private fun SettingsScreen(
 }
 
 // ═══════════════════════════════════════════════
+// Objects Screen
+// ═══════════════════════════════════════════════
+
+@Composable
+private fun ObjectsScreen(
+    modifier: Modifier,
+    locationObjects: List<LocationObject>,
+    onLocationObjectsChange: (List<LocationObject>) -> Unit
+) {
+    var showEditDialog by remember { mutableStateOf<LocationObject?>(null) }
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<LocationObject?>(null) }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        // Header
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.secondaryContainer)))
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("🏢 База объектов", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                IconButton(onClick = { showCreateDialog = true }) {
+                    Icon(Icons.Outlined.Add, contentDescription = "Добавить объект", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+
+        if (locationObjects.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("🏗️", fontSize = 48.sp)
+                    Text("Объекты не добавлены", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Нажмите + чтобы добавить первый объект", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                    OutlinedButton(onClick = { showCreateDialog = true }) { Text("Добавить объект") }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(locationObjects, key = { it.id }) { obj ->
+                    ElevatedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { showEditDialog = obj }
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Outlined.Place, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                    Text(obj.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                Row {
+                                    IconButton(onClick = { showEditDialog = obj }, modifier = Modifier.size(36.dp)) {
+                                        Icon(Icons.Outlined.Edit, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                    IconButton(onClick = { deleteTarget = obj }, modifier = Modifier.size(36.dp)) {
+                                        Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
+                            if (obj.addresses.isEmpty()) {
+                                Text("Адреса не добавлены", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else {
+                                obj.addresses.forEach { addr ->
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Top) {
+                                        Text("•", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                        Text(addr, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Create dialog
+    if (showCreateDialog) {
+        ObjectEditDialog(
+            initial = null,
+            onSave = { newObj ->
+                onLocationObjectsChange(locationObjects + newObj)
+                showCreateDialog = false
+            },
+            onDismiss = { showCreateDialog = false }
+        )
+    }
+
+    // Edit dialog
+    showEditDialog?.let { obj ->
+        ObjectEditDialog(
+            initial = obj,
+            onSave = { updated ->
+                onLocationObjectsChange(locationObjects.map { if (it.id == updated.id) updated else it })
+                showEditDialog = null
+            },
+            onDismiss = { showEditDialog = null }
+        )
+    }
+
+    // Delete confirmation
+    deleteTarget?.let { obj ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Удалить объект?") },
+            text = { Text("«${obj.name}» будет удалён навсегда.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onLocationObjectsChange(locationObjects.filter { it.id != obj.id })
+                    deleteTarget = null
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Отмена") } }
+        )
+    }
+}
+
+@Composable
+private fun ObjectEditDialog(
+    initial: LocationObject?,
+    onSave: (LocationObject) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf(initial?.name ?: "") }
+    var addresses by remember { mutableStateOf(initial?.addresses ?: emptyList()) }
+    var newAddress by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initial == null) "Новый объект" else "Редактировать объект", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Название объекта") },
+                    placeholder = { Text("Например: Склад №1, Офис на Ленина") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Text("Адреса:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+
+                addresses.forEachIndexed { idx, addr ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(addr, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        IconButton(onClick = {
+                            addresses = addresses.toMutableList().also { it.removeAt(idx) }
+                        }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = newAddress,
+                        onValueChange = { newAddress = it },
+                        label = { Text("Новый адрес") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    IconButton(
+                        onClick = {
+                            val a = newAddress.trim()
+                            if (a.isNotBlank()) { addresses = addresses + a; newAddress = "" }
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                    ) {
+                        Icon(Icons.Outlined.Add, "Добавить адрес", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(onClick = onDismiss) { Text("Отмена") }
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        val trimName = name.trim()
+                        if (trimName.isNotBlank()) {
+                            val id = initial?.id ?: System.currentTimeMillis().toString()
+                            onSave(LocationObject(id, trimName, addresses))
+                        }
+                    },
+                    enabled = name.trim().isNotBlank()
+                ) { Text("Сохранить") }
+            }
+        }
+    )
+}
+
+@Composable
+fun ObjectPickerSheet(
+    locationObjects: List<LocationObject>,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedObject by remember { mutableStateOf<LocationObject?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            if (selectedObject == null) Text("Выбрать объект", fontWeight = FontWeight.Bold)
+            else Text(selectedObject!!.name, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            if (locationObjects.isEmpty()) {
+                Text("База объектов пуста.\nДобавьте объекты во вкладке «Объекты».", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (selectedObject == null) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(locationObjects) { obj ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .clickable {
+                                    if (obj.addresses.size == 1) {
+                                        onPick(obj.addresses.first())
+                                    } else if (obj.addresses.isEmpty()) {
+                                        onPick(obj.name)
+                                    } else {
+                                        selectedObject = obj
+                                    }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Outlined.Place, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Column {
+                                Text(obj.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                if (obj.addresses.isNotEmpty()) {
+                                    Text("${obj.addresses.size} адр.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Address picker for the selected object
+                val obj = selectedObject!!
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(obj.addresses) { addr ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .clickable { onPick("${obj.name}: $addr") }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Outlined.Place, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
+                            Text(addr, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                if (selectedObject != null) {
+                    TextButton(onClick = { selectedObject = null }) { Text("← Назад") }
+                }
+                TextButton(onClick = onDismiss) { Text("Отмена") }
+            }
+        }
+    )
+}
+
+// ═══════════════════════════════════════════════
 // Dialogs
 // ═══════════════════════════════════════════════
 
@@ -1354,6 +1670,7 @@ private fun ShiftPickerDialog(
     date: LocalDate,
     currentDetails: ShiftDetails?,
     shiftRates: Map<ShiftKind, String>,
+    locationObjects: List<LocationObject> = emptyList(),
     onDetailsSaved: (ShiftDetails?) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1366,6 +1683,7 @@ private fun ShiftPickerDialog(
     var currentEndTime by remember { mutableStateOf(currentDetails?.endTime ?: "") }
     var isSaving by remember { mutableStateOf(false) }
     var showMapPicker by remember { mutableStateOf(false) }
+    var showObjectPicker by remember { mutableStateOf(false) }
     var pickingStartTime by remember { mutableStateOf(false) }
     var pickingEndTime by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -1467,6 +1785,10 @@ private fun ShiftPickerDialog(
                         modifier = Modifier.fillMaxWidth(),
                         trailingIcon = {
                             Row {
+                                // Object database picker
+                                IconButton(onClick = { showObjectPicker = true }) {
+                                    Icon(Icons.Default.List, contentDescription = "База объектов", tint = MaterialTheme.colorScheme.tertiary)
+                                }
                                 IconButton(onClick = { showMapPicker = true }) {
                                     Icon(Icons.Outlined.Map, contentDescription = "Map Picker", tint = MaterialTheme.colorScheme.secondary)
                                 }
@@ -1554,6 +1876,17 @@ private fun ShiftPickerDialog(
                 onCancel = { showMapPicker = false }
             )
         }
+    }
+
+    if (showObjectPicker) {
+        ObjectPickerSheet(
+            locationObjects = locationObjects,
+            onPick = { picked ->
+                currentLocation = picked
+                showObjectPicker = false
+            },
+            onDismiss = { showObjectPicker = false }
+        )
     }
 
     if (pickingStartTime) {
