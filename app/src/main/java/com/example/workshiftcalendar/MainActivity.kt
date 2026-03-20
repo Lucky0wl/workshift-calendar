@@ -196,8 +196,7 @@ class WorkshiftRepository(private val context: Context) {
 // Domain Model
 // ═══════════════════════════════════════════════
 
-private enum class BottomTab(val label: String) {
-    CALENDAR("Календарь"), STATS("Статистика"), BUDGET("Бюджет"), TEMPLATES("Шаблоны"), OBJECTS("Объекты"), SETTINGS("Настройки")
+    CALENDAR("Календарь"), STATS("Статистика"), BUDGET("Бюджет"), OBJECTS("Объекты"), SETTINGS("Настройки")
 }
 
 enum class ShiftKind(
@@ -382,6 +381,7 @@ fun WorkshiftAppRoot() {
     var notificationTime by remember { mutableStateOf("20:00") }
     var locationObjects by remember { mutableStateOf(listOf<LocationObject>()) }
     var isLoaded by remember { mutableStateOf(false) }
+    var showTemplatesScreen by remember { mutableStateOf(false) }
 
     // Load from DataStore once
     LaunchedEffect(Unit) {
@@ -421,7 +421,18 @@ fun WorkshiftAppRoot() {
     }
 
     WorkshiftTheme(style = currentStyle) {
-        Scaffold(
+        if (showTemplatesScreen) {
+            TemplatesScreen(
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+                templates = templates,
+                onTemplatesChange = { templates = it },
+                month = selectedMonth,
+                assignments = assignments,
+                onAssignmentsChange = { assignments = it },
+                onBack = { showTemplatesScreen = false }
+            )
+        } else {
+            Scaffold(
             bottomBar = {
                 NavigationBar {
                     NavigationBarItem(
@@ -441,12 +452,6 @@ fun WorkshiftAppRoot() {
                         onClick = { currentTab = BottomTab.BUDGET },
                         icon = { Icon(Icons.Outlined.Wallet, null) },
                         label = { Text("Бюджет") }
-                    )
-                    NavigationBarItem(
-                        selected = currentTab == BottomTab.TEMPLATES,
-                        onClick = { currentTab = BottomTab.TEMPLATES },
-                        icon = { Icon(Icons.Default.List, null) },
-                        label = { Text("Шаблоны") }
                     )
                     NavigationBarItem(
                         selected = currentTab == BottomTab.OBJECTS,
@@ -490,14 +495,6 @@ fun WorkshiftAppRoot() {
                     expenses = expenses,
                     onExpensesChange = { expenses = it }
                 )
-                BottomTab.TEMPLATES -> TemplatesScreen(
-                    modifier = Modifier.padding(innerPadding),
-                    templates = templates,
-                    onTemplatesChange = { templates = it },
-                    month = selectedMonth,
-                    assignments = assignments,
-                    onAssignmentsChange = { assignments = it }
-                )
                 BottomTab.OBJECTS -> ObjectsScreen(
                     modifier = Modifier.padding(innerPadding),
                     locationObjects = locationObjects,
@@ -512,9 +509,11 @@ fun WorkshiftAppRoot() {
                     notificationsEnabled = notificationsEnabled,
                     onNotificationsToggled = { notificationsEnabled = it },
                     notificationTime = notificationTime,
-                    onNotificationTimeChanged = { notificationTime = it }
+                    onNotificationTimeChanged = { notificationTime = it },
+                    onOpenTemplates = { showTemplatesScreen = true }
                 )
             }
+        }
         }
     }
 }
@@ -1126,17 +1125,26 @@ private fun TemplatesScreen(
     onTemplatesChange: (List<ShiftTemplate>) -> Unit,
     month: YearMonth,
     assignments: Map<LocalDate, ShiftDetails>,
-    onAssignmentsChange: (Map<LocalDate, ShiftDetails>) -> Unit
+    onAssignmentsChange: (Map<LocalDate, ShiftDetails>) -> Unit,
+    onBack: () -> Unit
 ) {
     var applyTarget by remember { mutableStateOf<ShiftTemplate?>(null) }
 
     Column(modifier = modifier.fillMaxSize()) {
-        Text(
-            text = "Шаблоны графиков",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(16.dp)
-        )
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Outlined.ArrowBack, contentDescription = "Назад")
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "Шаблоны графиков",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        }
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -1219,7 +1227,8 @@ private fun SettingsScreen(
     notificationsEnabled: Boolean,
     onNotificationsToggled: (Boolean) -> Unit,
     notificationTime: String,
-    onNotificationTimeChanged: (String) -> Unit
+    onNotificationTimeChanged: (String) -> Unit,
+    onOpenTemplates: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1249,6 +1258,26 @@ private fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Настройки", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+
+        // Templates Access
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onOpenTemplates
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.List, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Column {
+                        Text("Шаблоны графиков", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Настройте или примените шаблоны", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
 
         // Theme picker
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
