@@ -2876,6 +2876,7 @@ fun LocationsMapScreen(
                     MapView(ctx).apply {
                         setTileSource(TileSourceFactory.MAPNIK)
                         setMultiTouchControls(true)
+                        overScrollMode = android.view.View.OVER_SCROLL_NEVER
                         controller.setZoom(11.0)
                         
                         val overlayReceiver = object : MapEventsReceiver {
@@ -3039,6 +3040,7 @@ fun MapPickerScreen(
                 MapView(ctx).apply {
                     setTileSource(TileSourceFactory.MAPNIK)
                     setMultiTouchControls(true)
+                    overScrollMode = android.view.View.OVER_SCROLL_NEVER
                     controller.setZoom(12.0)
 
                     val overlayReceiver = object : MapEventsReceiver {
