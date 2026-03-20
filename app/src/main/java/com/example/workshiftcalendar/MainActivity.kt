@@ -2825,6 +2825,20 @@ fun UpdateCenterCard() {
     }
 }
 
+// ═══════════════════════════════════════════════
+// Map (OSMDroid)
+// ═══════════════════════════════════════════════
+
+data class LocationStats(
+    val name: String,
+    val lat: Double,
+    val lng: Double,
+    val totalShifts: Int,
+    val totalHours: Double,
+    val totalEarnings: Int,
+    val notes: List<String>
+)
+
 @Composable
 fun LocationsMapScreen(
     assignments: Map<LocalDate, ShiftDetails>,
@@ -2833,6 +2847,7 @@ fun LocationsMapScreen(
 ) {
     androidx.activity.compose.BackHandler(onBack = onBack)
     var selectedStats by remember { mutableStateOf<LocationStats?>(null) }
+    var showMetro by remember { mutableStateOf(false) }
     
     val coordsRegex = Regex("Lat:\\s*(-?\\d+\\.\\d+),\\s*Lng:\\s*(-?\\d+\\.\\d+)")
     val statsList = remember(assignments, shiftRates) {
@@ -2858,17 +2873,21 @@ fun LocationsMapScreen(
 
     Box(Modifier.fillMaxSize().background(Color.White)) {
         Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(16.dp).background(Color.White), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(16.dp).background(MaterialTheme.colorScheme.background), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "Назад") }
                 Spacer(Modifier.width(8.dp))
-                Text("Карта объектов", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Карта объектов", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { showMetro = !showMetro }) {
+                    androidx.compose.material3.Checkbox(checked = showMetro, onCheckedChange = { showMetro = it }, modifier = Modifier.size(24.dp))
+                    Text("Метро", style = MaterialTheme.typography.bodySmall)
+                }
             }
             
             AndroidView(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 factory = { ctx ->
                     MapView(ctx).apply {
-                        setTileSource(TileSourceFactory.MAPNIK)
+                        setTileSource(if (showMetro) TileSourceFactory.PUBLIC_TRANSPORT else TileSourceFactory.MAPNIK)
                         setMultiTouchControls(true)
                         controller.setZoom(11.0)
                         
@@ -2893,7 +2912,7 @@ fun LocationsMapScreen(
                                 marker.title = stat.name
                                 marker.setOnMarkerClickListener { _, _ ->
                                     selectedStats = stat
-                                    controller.animateTo(marker.position)
+                                    controller.animateTo(marker.position, 15.0, 1000L)
                                     true
                                 }
                                 overlays.add(marker)
@@ -2902,6 +2921,9 @@ fun LocationsMapScreen(
                             controller.setCenter(GeoPoint(55.7558, 37.6173))
                         }
                     }
+                },
+                update = { view ->
+                    view.setTileSource(if (showMetro) TileSourceFactory.PUBLIC_TRANSPORT else TileSourceFactory.MAPNIK)
                 }
             )
         }
@@ -3012,12 +3034,19 @@ fun MapPickerScreen(
     onCancel: () -> Unit
 ) {
     var pickedPoint by remember { mutableStateOf<GeoPoint?>(if (initialLat != null && initialLng != null) GeoPoint(initialLat, initialLng) else null) }
+    var showMetro by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(Color.White)) {
         // top bar
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onCancel) { Icon(Icons.Outlined.ArrowBack, "Cancel") }
-            Text("Выберите точку", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Выберите точку", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { showMetro = !showMetro }) {
+                    androidx.compose.material3.Checkbox(checked = showMetro, onCheckedChange = { showMetro = it }, modifier = Modifier.size(24.dp))
+                    Text("Метро", style = MaterialTheme.typography.bodySmall)
+                }
+            }
             Button(onClick = { pickedPoint?.let { onLocationPicked(it.latitude, it.longitude) } }, enabled = pickedPoint != null) {
                 Text("Готово")
             }
@@ -3028,7 +3057,7 @@ fun MapPickerScreen(
             modifier = Modifier.weight(1f),
             factory = { ctx ->
                 MapView(ctx).apply {
-                    setTileSource(TileSourceFactory.MAPNIK)
+                    setTileSource(if (showMetro) TileSourceFactory.PUBLIC_TRANSPORT else TileSourceFactory.MAPNIK)
                     setMultiTouchControls(true)
                     controller.setZoom(12.0)
 
@@ -3063,7 +3092,7 @@ fun MapPickerScreen(
                 }
             },
             update = { view ->
-                // Map automatically handles updates through its own logic in this simple use-case
+                view.setTileSource(if (showMetro) TileSourceFactory.PUBLIC_TRANSPORT else TileSourceFactory.MAPNIK)
             }
         )
     }
