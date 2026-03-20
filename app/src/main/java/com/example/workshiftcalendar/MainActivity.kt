@@ -2829,16 +2829,6 @@ fun UpdateCenterCard() {
 // Map (OSMDroid)
 // ═══════════════════════════════════════════════
 
-data class LocationStats(
-    val name: String,
-    val lat: Double,
-    val lng: Double,
-    val totalShifts: Int,
-    val totalHours: Double,
-    val totalEarnings: Int,
-    val notes: List<String>
-)
-
 @Composable
 fun LocationsMapScreen(
     assignments: Map<LocalDate, ShiftDetails>,
