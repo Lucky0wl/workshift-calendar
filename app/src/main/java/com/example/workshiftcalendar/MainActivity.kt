@@ -1129,6 +1129,8 @@ private fun TemplatesScreen(
     onBack: () -> Unit
 ) {
     var applyTarget by remember { mutableStateOf<ShiftTemplate?>(null) }
+    
+    androidx.activity.compose.BackHandler(onBack = onBack)
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
