@@ -1750,8 +1750,6 @@ private fun ShiftPickerDialog(
                     if (loc != null) currentLocation = "Lat: ${String.format(Locale.US, "%.4f", loc.latitude)}, Lng: ${String.format(Locale.US, "%.4f", loc.longitude)}"
                 }
             } catch (_: SecurityException) {}
-        } else {
-            locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
     }
     val fetchLocation: () -> Unit = {
