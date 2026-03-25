@@ -782,6 +782,12 @@ private fun CalendarScreen(
                     val m = assignments.toMutableMap(); m.remove(date)
                     onAssignmentsChange(m); showDetailForDate = null
                 },
+                onTogglePaid = { paid ->
+                    val m = assignments.toMutableMap()
+                    m[date] = details.copy(isSalaryPaid = paid)
+                    onAssignmentsChange(m)
+                },
+                onTogglePaidContent = { paid -> "temp" }, // ignore
                 onDismiss = { showDetailForDate = null }
             )
         }
@@ -1873,21 +1879,7 @@ private fun ShiftPickerDialog(
                         label = { Text("Заметка / Что сделано") },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { currentIsSalaryPaid = !currentIsSalaryPaid }
-                            .padding(vertical = 8.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Зарплата выплачена", style = MaterialTheme.typography.bodyMedium)
-                        Switch(
-                            checked = currentIsSalaryPaid,
-                            onCheckedChange = { currentIsSalaryPaid = it }
-                        )
-                    }
+                    // Salary checkbox moved to DayDetailDialog
                 }
                 TextButton(
                     onClick = {
@@ -2007,6 +1999,8 @@ private fun DayDetailDialog(
     details: ShiftDetails,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onTogglePaid: (Boolean) -> Unit,
+    onTogglePaidContent: (Boolean) -> String = {""},
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -2111,9 +2105,21 @@ private fun DayDetailDialog(
                     Text("💰 ${details.customSalary} ₽", style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
-                if (details.isSalaryPaid) {
-                    Text("✅ Зарплата выплачена", style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onTogglePaid(!details.isSalaryPaid) }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Зарплата выплачена", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    Switch(
+                        checked = details.isSalaryPaid,
+                        onCheckedChange = onTogglePaid,
+                        modifier = Modifier.scale(0.8f)
+                    )
                 }
 
                 // Location + open in Maps
