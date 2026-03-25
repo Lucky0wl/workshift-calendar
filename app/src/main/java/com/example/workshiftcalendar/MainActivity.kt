@@ -189,7 +189,8 @@ class WorkshiftRepository(private val context: Context) {
                     customSalary = shiftDto.customSalary,
                     customHours = shiftDto.customHours,
                     startTime = shiftDto.startTime,
-                    endTime = shiftDto.endTime
+                    endTime = shiftDto.endTime,
+                    isSalaryPaid = shiftDto.isSalaryPaid
                 )
             }
         } catch (e: Exception) { null }
@@ -224,7 +225,8 @@ data class ShiftDetails(
     val customSalary: String = "",
     val customHours: String = "",
     val startTime: String = "",
-    val endTime: String = ""
+    val endTime: String = "",
+    val isSalaryPaid: Boolean = false
 )
 
 private data class ShiftTemplate(
@@ -302,7 +304,7 @@ data class LocationStats(
 // Serialisation DTOs
 // ═══════════════════════════════════════════════
 
-private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "", val customHours: String = "", val startTime: String = "", val endTime: String = "")
+private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "", val customHours: String = "", val startTime: String = "", val endTime: String = "", val isSalaryPaid: Boolean = false)
 private data class ShiftTemplateDto(val id: String = "", val name: String = "", val description: String = "", val pattern: List<String> = emptyList())
 private data class ExpenseEntryDto(val id: String = "", val date: String = "", val amount: Int = 0, val category: String = "", val note: String = "", val createdAt: Long = 0L)
 private data class LocationObjectDto(val id: String = "", val name: String = "", val addresses: List<String> = emptyList())
@@ -318,11 +320,11 @@ private data class AppDataDto(
 )
 
 private fun Map<LocalDate, ShiftDetails>.toDto() = entries.associate { (d, v) ->
-    d.toString() to ShiftDetailsDto(v.kind.name, v.note, v.location, v.customSalary, v.customHours, v.startTime, v.endTime)
+    d.toString() to ShiftDetailsDto(v.kind.name, v.note, v.location, v.customSalary, v.customHours, v.startTime, v.endTime, v.isSalaryPaid)
 }
 
 private fun Map<String, ShiftDetailsDto>.toDomain() = entries.mapNotNull { (ds, dto) ->
-    try { LocalDate.parse(ds) to ShiftDetails(ShiftKind.valueOf(dto.kind), dto.note, dto.location, dto.customSalary, dto.customHours, dto.startTime, dto.endTime) }
+    try { LocalDate.parse(ds) to ShiftDetails(ShiftKind.valueOf(dto.kind), dto.note, dto.location, dto.customSalary, dto.customHours, dto.startTime, dto.endTime, dto.isSalaryPaid) }
     catch (e: Exception) { null }
 }.toMap()
 
@@ -897,9 +899,14 @@ private fun DayCard(
                     )
                 }
             }
-            // Note/location dot
-            if (shiftDetails?.note?.isNotBlank() == true || shiftDetails?.location?.isNotBlank() == true) {
-                Box(Modifier.size(4.dp).clip(CircleShape).background(shiftDetails!!.kind.color))
+            // Note/location/salary indicators
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (shiftDetails?.isSalaryPaid == true) {
+                    Text("✅", fontSize = 6.sp)
+                }
+                if (shiftDetails?.note?.isNotBlank() == true || shiftDetails?.location?.isNotBlank() == true) {
+                    Box(Modifier.size(4.dp).clip(CircleShape).background(shiftDetails!!.kind.color))
+                }
             }
         }
     }
@@ -926,6 +933,9 @@ private fun StatsScreen(
     val totalEarnings = remember(filtered, shiftRates) {
         filtered.values.sumOf { it.customSalary.toIntOrNull() ?: shiftRates[it.kind]?.toIntOrNull() ?: 0 }
     }
+    val totalPaid = remember(filtered, shiftRates) {
+        filtered.values.filter { it.isSalaryPaid }.sumOf { it.customSalary.toIntOrNull() ?: shiftRates[it.kind]?.toIntOrNull() ?: 0 }
+    }
 
     val weeklyData = remember(month, filtered) {
         (0..5).mapNotNull { week ->
@@ -945,6 +955,8 @@ private fun StatsScreen(
 
     var calculateTax by remember { mutableStateOf(false) }
     val displayEarnings = if (calculateTax) (totalEarnings * 0.87).toInt() else totalEarnings
+    val displayPaid = if (calculateTax) (totalPaid * 0.87).toInt() else totalPaid
+    val displayRemaining = displayEarnings - displayPaid
 
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -973,7 +985,12 @@ private fun StatsScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SummaryCard("Смен", totalShifts.toString(), MaterialTheme.colorScheme.primaryContainer, Modifier.weight(1f))
             SummaryCard("Часов", totalHours.formatHours(), MaterialTheme.colorScheme.secondaryContainer, Modifier.weight(1f))
-            SummaryCard(if (calculateTax) "На руки" else "Начислено", if (displayEarnings > 0) "$displayEarnings ₽" else "—", MaterialTheme.colorScheme.tertiaryContainer, Modifier.weight(1f))
+            SummaryCard(if (calculateTax) "На руки" else "Начислено", if (displayEarnings > 0) "$displayEarnings ₽" else "—", MaterialTheme.colorScheme.tertiaryContainer, Modifier.weight(1.5f))
+        }
+        
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SummaryCard("Выплачено", if (displayPaid > 0) "$displayPaid ₽" else "0 ₽", Color(0xFFC8E6C9), Modifier.weight(1f))
+            SummaryCard("Остаток", if (displayRemaining > 0) "$displayRemaining ₽" else "0 ₽", Color(0xFFFFCCBC), Modifier.weight(1f))
         }
 
         // Tax toggle
@@ -1732,6 +1749,7 @@ private fun ShiftPickerDialog(
     var currentCustomHours by remember { mutableStateOf(currentDetails?.customHours ?: "") }
     var currentStartTime by remember { mutableStateOf(currentDetails?.startTime ?: "") }
     var currentEndTime by remember { mutableStateOf(currentDetails?.endTime ?: "") }
+    var currentIsSalaryPaid by remember { mutableStateOf(currentDetails?.isSalaryPaid ?: false) }
     var isSaving by remember { mutableStateOf(false) }
     var showMapPicker by remember { mutableStateOf(false) }
     var showObjectPicker by remember { mutableStateOf(false) }
@@ -1855,6 +1873,21 @@ private fun ShiftPickerDialog(
                         label = { Text("Заметка / Что сделано") },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { currentIsSalaryPaid = !currentIsSalaryPaid }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Зарплата выплачена", style = MaterialTheme.typography.bodyMedium)
+                        Switch(
+                            checked = currentIsSalaryPaid,
+                            onCheckedChange = { currentIsSalaryPaid = it }
+                        )
+                    }
                 }
                 TextButton(
                     onClick = {
@@ -1865,6 +1898,7 @@ private fun ShiftPickerDialog(
                         currentCustomHours = ""
                         currentStartTime = ""
                         currentEndTime = ""
+                        currentIsSalaryPaid = false
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Очистить день") }
@@ -1897,12 +1931,12 @@ private fun ShiftPickerDialog(
                                 } else loc
 
                                 withContext(Dispatchers.Main) {
-                                    onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, finalLoc, currentCustomSalary, currentCustomHours, currentStartTime, currentEndTime))
+                                    onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, finalLoc, currentCustomSalary, currentCustomHours, currentStartTime, currentEndTime, currentIsSalaryPaid))
                                     isSaving = false
                                 }
                             }
                         } else {
-                            onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, loc, currentCustomSalary, currentCustomHours, currentStartTime, currentEndTime))
+                            onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, loc, currentCustomSalary, currentCustomHours, currentStartTime, currentEndTime, currentIsSalaryPaid))
                         }
                     }
                 ) { Text(if (isSaving) "Поиск…" else "Сохранить") }
@@ -2076,6 +2110,10 @@ private fun DayDetailDialog(
                 if (details.customSalary.isNotBlank()) {
                     Text("💰 ${details.customSalary} ₽", style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+                if (details.isSalaryPaid) {
+                    Text("✅ Зарплата выплачена", style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
                 }
 
                 // Location + open in Maps
