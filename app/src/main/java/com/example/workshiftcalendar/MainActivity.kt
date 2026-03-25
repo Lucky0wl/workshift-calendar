@@ -989,8 +989,8 @@ private fun StatsScreen(
         }
         
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SummaryCard("Выплачено", if (displayPaid > 0) "$displayPaid ₽" else "0 ₽", Color(0xFFC8E6C9), Modifier.weight(1f))
-            SummaryCard("Остаток", if (displayRemaining > 0) "$displayRemaining ₽" else "0 ₽", Color(0xFFFFCCBC), Modifier.weight(1f))
+            SummaryCard("Выплачено", if (displayPaid > 0) "$displayPaid ₽" else "0 ₽", MaterialTheme.colorScheme.secondaryContainer, Modifier.weight(1f))
+            SummaryCard("Остаток", if (displayRemaining > 0) "$displayRemaining ₽" else "0 ₽", MaterialTheme.colorScheme.surfaceVariant, Modifier.weight(1f))
         }
 
         // Tax toggle
