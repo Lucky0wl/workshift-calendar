@@ -2117,8 +2117,7 @@ private fun DayDetailDialog(
                     Text("Зарплата выплачена", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                     Switch(
                         checked = details.isSalaryPaid,
-                        onCheckedChange = onTogglePaid,
-                        modifier = Modifier.scale(0.8f)
+                        onCheckedChange = onTogglePaid
                     )
                 }
 
