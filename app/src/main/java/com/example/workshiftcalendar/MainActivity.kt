@@ -86,6 +86,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -226,7 +227,9 @@ data class ShiftDetails(
     val customHours: String = "",
     val startTime: String = "",
     val endTime: String = "",
-    val isSalaryPaid: Boolean = false
+    val isSalaryPaid: Boolean = false,
+    val totalOwed: String = "",
+    val totalPaid: String = ""
 )
 
 private data class ShiftTemplate(
@@ -260,6 +263,36 @@ private fun ShiftDetails.calculateTotalHours(): Double {
 private fun Double.formatHours(): String {
     val i = this.toInt()
     return if (this == i.toDouble()) i.toString() else String.format(Locale.US, "%.1f", this)
+}
+
+// Автоопределение типа смены по времени
+private fun autoDetectShiftKind(startTime: String, endTime: String): ShiftKind {
+    if (startTime.isBlank() || endTime.isBlank()) return ShiftKind.MORNING
+
+    try {
+        val startParts = startTime.split(":")
+        val endParts = endTime.split(":")
+        if (startParts.size < 2 || endParts.size < 2) return ShiftKind.MORNING
+
+        val startHour = startParts[0].toInt()
+        var endHour = endParts[0].toInt()
+
+        // Если время окончания меньше времени начала, то смена ночная
+        if (endHour <= startHour) {
+            endHour += 24
+        }
+
+        return when {
+            // Ночная смена: начало после 20:00 или начало до 8:00
+            startHour >= 20 || startHour < 4 -> ShiftKind.NIGHT
+            // Вечерняя смена: начало с 14:00 до 20:00
+            startHour >= 14 -> ShiftKind.EVENING
+            // Утренняя смена: начало до 14:00
+            else -> ShiftKind.MORNING
+        }
+    } catch (_: Exception) {
+        return ShiftKind.MORNING
+    }
 }
 
 private data class DayCell(val date: LocalDate, val isCurrentMonth: Boolean)
@@ -304,7 +337,7 @@ data class LocationStats(
 // Serialisation DTOs
 // ═══════════════════════════════════════════════
 
-private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "", val customHours: String = "", val startTime: String = "", val endTime: String = "", val isSalaryPaid: Boolean = false)
+private data class ShiftDetailsDto(val kind: String = "", val note: String = "", val location: String = "", val customSalary: String = "", val customHours: String = "", val startTime: String = "", val endTime: String = "", val isSalaryPaid: Boolean = false, val totalOwed: String = "", val totalPaid: String = "")
 private data class ShiftTemplateDto(val id: String = "", val name: String = "", val description: String = "", val pattern: List<String> = emptyList())
 private data class ExpenseEntryDto(val id: String = "", val date: String = "", val amount: Int = 0, val category: String = "", val note: String = "", val createdAt: Long = 0L)
 private data class LocationObjectDto(val id: String = "", val name: String = "", val addresses: List<String> = emptyList())
@@ -320,11 +353,11 @@ private data class AppDataDto(
 )
 
 private fun Map<LocalDate, ShiftDetails>.toDto() = entries.associate { (d, v) ->
-    d.toString() to ShiftDetailsDto(v.kind.name, v.note, v.location, v.customSalary, v.customHours, v.startTime, v.endTime, v.isSalaryPaid)
+    d.toString() to ShiftDetailsDto(v.kind.name, v.note, v.location, v.customSalary, v.customHours, v.startTime, v.endTime, v.isSalaryPaid, v.totalOwed, v.totalPaid)
 }
 
 private fun Map<String, ShiftDetailsDto>.toDomain() = entries.mapNotNull { (ds, dto) ->
-    try { LocalDate.parse(ds) to ShiftDetails(ShiftKind.valueOf(dto.kind), dto.note, dto.location, dto.customSalary, dto.customHours, dto.startTime, dto.endTime, dto.isSalaryPaid) }
+    try { LocalDate.parse(ds) to ShiftDetails(ShiftKind.valueOf(dto.kind), dto.note, dto.location, dto.customSalary, dto.customHours, dto.startTime, dto.endTime, dto.isSalaryPaid, dto.totalOwed, dto.totalPaid) }
     catch (e: Exception) { null }
 }.toMap()
 
@@ -837,7 +870,14 @@ private fun DayCard(
     val bgColor = when {
         !cell.isCurrentMonth -> Color.Transparent
         isToday -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-        isWorking -> if (isDark) shiftDetails!!.kind.color.copy(alpha = 0.35f) else shiftDetails!!.kind.lightColor.copy(alpha = 0.85f)
+        isWorking -> {
+            // Зелёный если оплачен, красный если не оплачен
+            if (shiftDetails!!.isSalaryPaid) {
+                if (isDark) Color(0xFF1B5E20).copy(alpha = 0.4f) else Color(0xFF81C784).copy(alpha = 0.4f)
+            } else {
+                if (isDark) Color(0xFFC62828).copy(alpha = 0.3f) else Color(0xFFEF5350).copy(alpha = 0.3f)
+            }
+        }
         hasShift -> if (isDark) Color(0xFF333333) else Color(0xFFEEEEEE) // OFF day — subtle gray
         else -> MaterialTheme.colorScheme.surface
     }
@@ -1748,7 +1788,6 @@ private fun ShiftPickerDialog(
     onDetailsSaved: (ShiftDetails?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selectedKind by remember { mutableStateOf(currentDetails?.kind) }
     var currentNote by remember { mutableStateOf(currentDetails?.note ?: "") }
     var currentLocation by remember { mutableStateOf(currentDetails?.location ?: "") }
     var currentCustomSalary by remember { mutableStateOf(currentDetails?.customSalary ?: "") }
@@ -1756,6 +1795,8 @@ private fun ShiftPickerDialog(
     var currentStartTime by remember { mutableStateOf(currentDetails?.startTime ?: "") }
     var currentEndTime by remember { mutableStateOf(currentDetails?.endTime ?: "") }
     var currentIsSalaryPaid by remember { mutableStateOf(currentDetails?.isSalaryPaid ?: false) }
+    var currentTotalOwed by remember { mutableStateOf(currentDetails?.totalOwed ?: "") }
+    var currentTotalPaid by remember { mutableStateOf(currentDetails?.totalPaid ?: "") }
     var isSaving by remember { mutableStateOf(false) }
     var showMapPicker by remember { mutableStateOf(false) }
     var showObjectPicker by remember { mutableStateOf(false) }
@@ -1795,58 +1836,65 @@ private fun ShiftPickerDialog(
         title = { Text(date.format(fmt), fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Тип смены:", style = MaterialTheme.typography.labelMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ShiftKind.values().forEach { kind ->
-                        FilterChip(
-                            selected = selectedKind == kind,
-                            onClick = { selectedKind = kind },
-                            label = { Text(kind.displayName, fontSize = 11.sp) }
-                        )
+                Text("Время работы:", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    val startInteractionSource = remember { MutableInteractionSource() }
+                    LaunchedEffect(startInteractionSource) {
+                        startInteractionSource.interactions.collect {
+                            if (it is PressInteraction.Release) pickingStartTime = true
+                        }
+                    }
+                    OutlinedTextField(
+                        value = currentStartTime,
+                        onValueChange = { },
+                        readOnly = true,
+                        label = { Text("Начало") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        interactionSource = startInteractionSource
+                    )
+
+                    val endInteractionSource = remember { MutableInteractionSource() }
+                    LaunchedEffect(endInteractionSource) {
+                        endInteractionSource.interactions.collect {
+                            if (it is PressInteraction.Release) pickingEndTime = true
+                        }
+                    }
+                    OutlinedTextField(
+                        value = currentEndTime,
+                        onValueChange = { },
+                        readOnly = true,
+                        label = { Text("Окончание") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        interactionSource = endInteractionSource
+                    )
+                }
+                if (currentStartTime.isNotBlank() || currentEndTime.isNotBlank()) {
+                    val autoKind = autoDetectShiftKind(currentStartTime, currentEndTime)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(autoKind.lightColor.copy(alpha = 0.3f))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Тип: ${autoKind.emoji} ${autoKind.displayName}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                     }
                 }
-                if (selectedKind != null && selectedKind != ShiftKind.OFF) {
-                    val defaultRate = shiftRates[selectedKind] ?: ""
-                    val defaultHours = selectedKind?.hoursPerShift ?: 0
+
+                val detectedKind = autoDetectShiftKind(currentStartTime, currentEndTime)
+                if (detectedKind != ShiftKind.OFF) {
+                    val defaultRate = shiftRates[detectedKind] ?: ""
+                    val defaultHours = detectedKind.hoursPerShift
                     OutlinedTextField(
                         value = currentCustomSalary,
                         onValueChange = { currentCustomSalary = it },
-                        label = { Text(if (defaultRate.isNotBlank()) "Оплата (ставка: $defaultRate ₽)" else "Оплата за этот день (₽)") },
+                        label = { Text(if (defaultRate.isNotBlank()) "Оплата за день (ставка: $defaultRate ₽)" else "Оплата за этот день (₽)") },
                         modifier = Modifier.fillMaxWidth(), singleLine = true
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        val startInteractionSource = remember { MutableInteractionSource() }
-                        LaunchedEffect(startInteractionSource) {
-                            startInteractionSource.interactions.collect {
-                                if (it is PressInteraction.Release) pickingStartTime = true
-                            }
-                        }
-                        OutlinedTextField(
-                            value = currentStartTime,
-                            onValueChange = { },
-                            readOnly = true,
-                            label = { Text("Начало") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            interactionSource = startInteractionSource
-                        )
-
-                        val endInteractionSource = remember { MutableInteractionSource() }
-                        LaunchedEffect(endInteractionSource) {
-                            endInteractionSource.interactions.collect {
-                                if (it is PressInteraction.Release) pickingEndTime = true
-                            }
-                        }
-                        OutlinedTextField(
-                            value = currentEndTime,
-                            onValueChange = { },
-                            readOnly = true,
-                            label = { Text("Окончание") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            interactionSource = endInteractionSource
-                        )
-                    }
                     OutlinedTextField(
                         value = currentCustomHours,
                         onValueChange = { currentCustomHours = it },
@@ -1879,11 +1927,71 @@ private fun ShiftPickerDialog(
                         label = { Text("Заметка / Что сделано") },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    // Salary checkbox moved to DayDetailDialog
+
+                    Text("Информация об оплате:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = currentTotalOwed,
+                            onValueChange = { currentTotalOwed = it },
+                            label = { Text("Всего должно (₽)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = currentTotalPaid,
+                            onValueChange = { currentTotalPaid = it },
+                            label = { Text("Выплачено (₽)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+                    // Display remainder if both fields filled
+                    val owedVal = currentTotalOwed.toIntOrNull()
+                    val paidVal = currentTotalPaid.toIntOrNull()
+                    if (owedVal != null && paidVal != null) {
+                        val rem = owedVal - paidVal
+                        Text(
+                            text = when {
+                                rem > 0 -> "Остаток к оплате: $rem ₽"
+                                rem == 0 -> "✅ Полностью выплачено"
+                                else -> "Переплачено: ${-rem} ₽"
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = when {
+                                rem > 0 -> Color(0xFFC62828)
+                                rem == 0 -> Color(0xFF2E7D32)
+                                else -> Color(0xFF1565C0)
+                            }
+                        )
+                    }
+                    // Salary paid toggle directly in edit dialog
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (currentIsSalaryPaid) Color(0xFF2E7D32).copy(alpha = 0.1f)
+                                else Color(0xFFC62828).copy(alpha = 0.08f)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (currentIsSalaryPaid) "✅ Зарплата выплачена" else "❌ Зарплата не выплачена",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (currentIsSalaryPaid) Color(0xFF2E7D32) else Color(0xFFC62828)
+                        )
+                        Switch(
+                            checked = currentIsSalaryPaid,
+                            onCheckedChange = { currentIsSalaryPaid = it }
+                        )
+                    }
                 }
                 TextButton(
                     onClick = {
-                        selectedKind = null
                         currentNote = ""
                         currentLocation = ""
                         currentCustomSalary = ""
@@ -1891,6 +1999,8 @@ private fun ShiftPickerDialog(
                         currentStartTime = ""
                         currentEndTime = ""
                         currentIsSalaryPaid = false
+                        currentTotalOwed = ""
+                        currentTotalPaid = ""
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Очистить день") }
@@ -1901,12 +2011,13 @@ private fun ShiftPickerDialog(
                 TextButton(onClick = onDismiss) { Text("Отмена") }
                 Spacer(Modifier.width(8.dp))
                 TextButton(
-                    enabled = !isSaving,
+                    enabled = !isSaving && (currentStartTime.isNotBlank() || currentEndTime.isNotBlank()),
                     onClick = {
-                        if (selectedKind == null) {
+                        if (currentStartTime.isBlank() && currentEndTime.isBlank()) {
                             onDetailsSaved(null)
                             return@TextButton
                         }
+                        val detectedKind = autoDetectShiftKind(currentStartTime, currentEndTime)
                         val loc = currentLocation.trim()
                         if (loc.isNotBlank() && !loc.contains("Lat:")) {
                             isSaving = true
@@ -1923,12 +2034,12 @@ private fun ShiftPickerDialog(
                                 } else loc
 
                                 withContext(Dispatchers.Main) {
-                                    onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, finalLoc, currentCustomSalary, currentCustomHours, currentStartTime, currentEndTime, currentIsSalaryPaid))
+                                    onDetailsSaved(ShiftDetails(detectedKind, currentNote, finalLoc, currentCustomSalary, currentCustomHours, currentStartTime, currentEndTime, currentIsSalaryPaid, currentTotalOwed, currentTotalPaid))
                                     isSaving = false
                                 }
                             }
                         } else {
-                            onDetailsSaved(ShiftDetails(selectedKind!!, currentNote, loc, currentCustomSalary, currentCustomHours, currentStartTime, currentEndTime, currentIsSalaryPaid))
+                            onDetailsSaved(ShiftDetails(detectedKind, currentNote, loc, currentCustomSalary, currentCustomHours, currentStartTime, currentEndTime, currentIsSalaryPaid, currentTotalOwed, currentTotalPaid))
                         }
                     }
                 ) { Text(if (isSaving) "Поиск…" else "Сохранить") }
@@ -2119,6 +2230,50 @@ private fun DayDetailDialog(
                         checked = details.isSalaryPaid,
                         onCheckedChange = onTogglePaid
                     )
+                }
+
+                // Payment summary
+                if (details.totalOwed.isNotBlank() || details.totalPaid.isNotBlank()) {
+                    val owed = details.totalOwed.toIntOrNull() ?: 0
+                    val paid = details.totalPaid.toIntOrNull() ?: 0
+                    val remaining = owed - paid
+                    ElevatedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.elevatedCardColors(
+                            containerColor = when {
+                                remaining > 0 -> Color(0xFFC62828).copy(alpha = 0.15f)
+                                remaining == 0 -> Color(0xFF2E7D32).copy(alpha = 0.15f)
+                                else -> Color(0xFF1565C0).copy(alpha = 0.15f)
+                            }
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("💼 Информация об оплате", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("Всего должно", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("$owed ₽", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("Выплачено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("$paid ₽", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                }
+                            }
+                            if (remaining != 0) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(if (remaining > 0) "Остаток к выплате" else "Переплачено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            "${if (remaining > 0) "+" else ""}$remaining ₽",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (remaining > 0) Color(0xFFC62828) else Color(0xFF1565C0)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Location + open in Maps
@@ -2331,6 +2486,23 @@ private fun BudgetScreen(
     val balance = monthIncome - totalExpenses
     val balancePositive = balance >= 0
 
+    val monthFilteredAssignments = remember(month, assignments) {
+        assignments.filter { (d, _) -> YearMonth.from(d) == month }
+    }
+    val totalOwed = remember(monthFilteredAssignments) {
+        monthFilteredAssignments.values.sumOf { it.totalOwed.toIntOrNull() ?: 0 }
+    }
+    val totalPaid = remember(monthFilteredAssignments) {
+        monthFilteredAssignments.values.sumOf { it.totalPaid.toIntOrNull() ?: 0 }
+    }
+    val totalRemaining = totalOwed - totalPaid
+    val monthPaidCount = remember(monthFilteredAssignments) {
+        monthFilteredAssignments.values.count { it.isSalaryPaid }
+    }
+    val monthWorkCount = remember(monthFilteredAssignments) {
+        monthFilteredAssignments.values.count { it.kind != ShiftKind.OFF }
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         // Header with month selector
         Box(
@@ -2380,6 +2552,71 @@ private fun BudgetScreen(
                         Modifier.weight(1f),
                         prefix = if (balancePositive) "+" else ""
                     )
+                }
+            }
+
+            // Payment status
+            if (monthWorkCount > 0 && (totalOwed > 0 || totalPaid > 0)) {
+                item {
+                    ElevatedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.elevatedCardColors(
+                            containerColor = when {
+                                totalRemaining > 0 -> Color(0xFFC62828).copy(alpha = 0.1f)
+                                totalRemaining == 0 -> Color(0xFF2E7D32).copy(alpha = 0.1f)
+                                else -> Color(0xFF1565C0).copy(alpha = 0.1f)
+                            }
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("💼 Статус оплат", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("Смен отработано", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("$monthWorkCount", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Оплачено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("$monthPaidCount", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("Остаток", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        if (monthWorkCount - monthPaidCount > 0) "${monthWorkCount - monthPaidCount}" else "—",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (monthWorkCount - monthPaidCount > 0) Color(0xFFC62828) else MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            if (totalOwed > 0) {
+                                Divider(modifier = Modifier.padding(vertical = 4.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Column {
+                                        Text("Всего должно", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("$totalOwed ₽", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Выплачено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("$totalPaid ₽", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(if (totalRemaining > 0) "К выплате" else if (totalRemaining < 0) "Переплачено" else "Выплачено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            if (totalRemaining == 0) "✓" else "${if (totalRemaining > 0) "+" else ""}$totalRemaining ₽",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = when {
+                                                totalRemaining > 0 -> Color(0xFFC62828)
+                                                totalRemaining == 0 -> Color(0xFF2E7D32)
+                                                else -> Color(0xFF1565C0)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
