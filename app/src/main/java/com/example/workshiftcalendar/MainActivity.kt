@@ -1990,20 +1990,44 @@ private fun ShiftPickerDialog(
                         )
                     }
                 }
-                TextButton(
-                    onClick = {
-                        currentNote = ""
-                        currentLocation = ""
-                        currentCustomSalary = ""
-                        currentCustomHours = ""
-                        currentStartTime = ""
-                        currentEndTime = ""
-                        currentIsSalaryPaid = false
-                        currentTotalOwed = ""
-                        currentTotalPaid = ""
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Очистить день") }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Off day button
+                    OutlinedButton(
+                        onClick = {
+                            onDetailsSaved(
+                                ShiftDetails(
+                                    kind = ShiftKind.OFF,
+                                    note = currentNote,
+                                    location = "",
+                                    customSalary = "",
+                                    customHours = "",
+                                    startTime = "",
+                                    endTime = "",
+                                    isSalaryPaid = false
+                                )
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("🏠 Выходной") }
+                    // Clear day button
+                    TextButton(
+                        onClick = {
+                            currentNote = ""
+                            currentLocation = ""
+                            currentCustomSalary = ""
+                            currentCustomHours = ""
+                            currentStartTime = ""
+                            currentEndTime = ""
+                            currentIsSalaryPaid = false
+                            currentTotalOwed = ""
+                            currentTotalPaid = ""
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Очистить") }
+                }
             }
         },
         confirmButton = {
