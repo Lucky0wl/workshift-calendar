@@ -11,8 +11,8 @@ android {
         applicationId "com.workshifts.calendar"
         minSdk 26
         targetSdk 34
-        versionCode 40
-        versionName "3.0.24"
+        versionCode 41
+        versionName "3.0.25"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -1932,15 +1932,26 @@ private fun ShiftPickerDialog(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
                             value = currentTotalOwed,
-                            onValueChange = { currentTotalOwed = it },
-                            label = { Text("Всего должно (₽)") },
+                            onValueChange = { 
+                                currentTotalOwed = it 
+                                val owed = it.toIntOrNull() ?: 0
+                                val paid = currentTotalPaid.toIntOrNull() ?: 0
+                                if (owed > 0 && paid >= owed) currentIsSalaryPaid = true
+                            },
+                            label = { Text("Начислено ₽") },
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
                         OutlinedTextField(
                             value = currentTotalPaid,
-                            onValueChange = { currentTotalPaid = it },
-                            label = { Text("Выплачено (₽)") },
+                            onValueChange = { 
+                                currentTotalPaid = it 
+                                val paid = it.toIntOrNull() ?: 0
+                                val owed = currentTotalOwed.toIntOrNull() ?: 0
+                                if (owed > 0 && paid >= owed) currentIsSalaryPaid = true
+                                else if (owed > 0 && paid < owed) currentIsSalaryPaid = false
+                            },
+                            label = { Text("Получено ₽") },
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -1948,24 +1959,31 @@ private fun ShiftPickerDialog(
                     // Display remainder if both fields filled
                     val owedVal = currentTotalOwed.toIntOrNull()
                     val paidVal = currentTotalPaid.toIntOrNull()
-                    if (owedVal != null && paidVal != null) {
-                        val rem = owedVal - paidVal
-                        Text(
-                            text = when {
-                                rem > 0 -> "Остаток к оплате: $rem ₽"
-                                rem == 0 -> "✅ Полностью выплачено"
-                                else -> "Переплачено: ${-rem} ₽"
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = when {
-                                rem > 0 -> Color(0xFFC62828)
-                                rem == 0 -> Color(0xFF2E7D32)
-                                else -> Color(0xFF1565C0)
+                    if (owedVal != null && owedVal > 0) {
+                        val pVal = paidVal ?: 0
+                        val rem = owedVal - pVal
+                        ElevatedCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.elevatedCardColors(
+                                containerColor = if (rem <= 0) Color(0xFF2E7D32).copy(alpha = 0.1f) else Color(0xFFC62828).copy(alpha = 0.1f)
+                            )
+                        ) {
+                            Row(modifier = Modifier.padding(10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = if (rem <= 0) "✅ Выплачено полностью" else "📊 Остаток: $rem ₽",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (rem <= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                )
+                                Text(
+                                    text = "$pVal из $owedVal ₽",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                        )
+                        }
                     }
-                    // Salary paid toggle directly in edit dialog
+                    // Salary paid toggle - mostly automatic now
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1978,12 +1996,15 @@ private fun ShiftPickerDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = if (currentIsSalaryPaid) "✅ Зарплата выплачена" else "❌ Зарплата не выплачена",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (currentIsSalaryPaid) Color(0xFF2E7D32) else Color(0xFFC62828)
-                        )
+                        Column {
+                            Text(
+                                text = if (currentIsSalaryPaid) "✅ Оплачено" else "⏳ Ждём оплату",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (currentIsSalaryPaid) Color(0xFF2E7D32) else Color(0xFFC62828)
+                            )
+                            Text("Автоматически при полной сумме", style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         Switch(
                             checked = currentIsSalaryPaid,
                             onCheckedChange = { currentIsSalaryPaid = it }
@@ -2275,18 +2296,18 @@ private fun DayDetailDialog(
                             Text("💼 Информация об оплате", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Column {
-                                    Text("Всего должно", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Начислено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("$owed ₽", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text("Выплачено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Получено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("$paid ₽", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
                                 }
                             }
                             if (remaining != 0) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                     Column(horizontalAlignment = Alignment.End) {
-                                        Text(if (remaining > 0) "Остаток к выплате" else "Переплачено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(if (remaining > 0) "Остаток к получению" else "Переплата", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text(
                                             "${if (remaining > 0) "+" else ""}$remaining ₽",
                                             style = MaterialTheme.typography.bodyMedium,
